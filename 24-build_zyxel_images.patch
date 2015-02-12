@@ -75,7 +75,7 @@ Index: target/linux/ramips/image/Makefile
 +	$(eval max_size=$(shell expr $(4) + 4))
 +	$(call BuildFirmware/OF,$(1),$(2),$(3),$(max_size))
 +	$(eval output_name=$(IMG_PREFIX)-$(2)-$(1)-factory)
-+	
++
 +	@if [ -f $(BIN_DIR)/$(IMG_PREFIX)-$(2)-$(1)-sysupgrade.bin ]; then \
 +		if [ `stat -c%s "$(KDIR)/vmlinux-$(2).bin.lzma"` -gt `expr $(5) - 64` ]; then \
 +			echo "Warning: unable to build Factory image! $(KDIR)/vmlinux-$(2).bin.lzma is too big: `stat -c%s "$(KDIR)/vmlinux-$(2).bin.lzma"` (`expr $(5) - 64` max) " >&2; \
