@@ -1,0 +1,33 @@
+From d8b6fc32e59a6014742cd37cbaa924c27c487e4a Mon Sep 17 00:00:00 2001
+From: Dirk Neukirchen <dirkneukirchen@web.de>
+Date: Thu, 12 Feb 2015 08:41:48 +0100
+Subject: [PATCH 18/18] tools: enable building of zyimage
+
+Signed-off-by: Dirk Neukirchen <dirkneukirchen@web.de>
+---
+ tools/Makefile | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/tools/Makefile b/tools/Makefile
+index b4938d3..4be7744 100644
+--- a/tools/Makefile
++++ b/tools/Makefile
+@@ -39,6 +39,7 @@ tools-y += lzma squashfs4
+ tools-$(BUILD_B43_TOOLS) += b43-tools
+ tools-$(BUILD_PPL_CLOOG) += ppl cloog
+ tools-$(CONFIG_USE_SPARSE) += sparse
++tools-y += zyimage
+ 
+ # builddir dependencies
+ $(curdir)/bison/compile := $(curdir)/flex/install
+@@ -74,6 +75,7 @@ $(curdir)/cloog/compile := $(curdir)/ppl/install
+ $(curdir)/bc/compile := $(curdir)/bison/install
+ $(curdir)/findutils/compile := $(curdir)/bison/install
+ $(curdir)/gengetopt/compile := $(curdir)/libtool/install
++$(curdir)/zyimage/compile := $(curdir)/findutils/install
+ 
+ ifneq ($(CONFIG_CCACHE),)
+ $(foreach tool, $(tools-y), $(eval $(curdir)/$(tool)/compile += $(curdir)/ccache/install))
+-- 
+2.3.0
+
