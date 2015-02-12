@@ -1,0 +1,239 @@
+Index: target/linux/ramips/base-files/etc/board.d/01_leds
+===================================================================
+--- target/linux/ramips/base-files/etc/board.d/01_leds	(revision 42231)
++++ target/linux/ramips/base-files/etc/board.d/01_leds	(working copy)
+@@ -135,6 +135,49 @@
+ 	na930)
+ 		set_usb_led "na930:blue:status"
+ 		;;
++	keenetic)
++		ucidef_set_led_default "power" "power" "zyxel:green:power" "1"
++		set_usb_led "zyxel:green:usb"
++		set_wifi_led "rt2800soc-phy0::radio"
++		;;
++	keenetic_giga)
++		ucidef_set_led_default "power" "power" "zyxel:green:power" "1"
++		set_usb_led "zyxel:green:usb"
++		set_wifi_led "zyxel:green:wlan"
++		;;
++	keenetic_lite_a)
++		ucidef_set_led_default "power" "power" "zyxel:green:power" "1"
++		;;
++	nbg4104)
++		ucidef_set_led_default "power" "power" "zyxel:green:power" "1"
++		set_wifi_led "rt2800soc-phy0::radio"
++		;;
++	keenetic_4g_a)
++		ucidef_set_led_default "power" "power" "zyxel:green:power" "1"
++		set_usb_led "zyxel:green:usb"
++		set_wifi_led "rt2800soc-phy0::radio"
++		;;
++	nbg4114)
++		ucidef_set_led_default "power" "power" "zyxel:green:power" "1"
++		set_usb_led "zyxel:green:usb"
++		set_wifi_led "zyxel:green:wlan"
++		ucidef_set_led_heartbeat "heartbeat" "reserved" "zyxel:green:reserved"
++		;;
++	keenetic_start)
++		ucidef_set_led_default "power" "power" "zyxel:green:power" "1"
++		set_wifi_led "rt2800soc-phy0::radio"
++		;;
++	keenetic_4g_ii)
++		ucidef_set_led_default "power" "power" "zyxel:green:power" "1"
++		set_usb_led "zyxel:green:usb"
++		set_wifi_led "rt2800soc-phy0::radio"
++		;;
++	keenetic_lite_ii)
++		ucidef_set_led_default "power" "power" "zyxel:green:power" "1"
++		;;
++	keenetic_omni)
++		ucidef_set_led_default "power" "power" "zyxel:green:power" "1"
++		;;
+ 	nw718)
+ 		set_usb_led "nw718:amber:usb"
+ 		;;
+Index: target/linux/ramips/base-files/etc/board.d/02_network
+===================================================================
+--- target/linux/ramips/base-files/etc/board.d/02_network	(revision 42231)
++++ target/linux/ramips/base-files/etc/board.d/02_network	(working copy)
+@@ -104,6 +104,13 @@
+ 	dir-615-h1 | \
+ 	hlk-rm04 | \
+ 	mzk-w300nh2 | \
++	keenetic | \
++	keenetic_lite_a | \
++	nbg4104 | \
++	keenetic_start | \
++	keenetic_4g_ii | \
++	keenetic_lite_ii | \
++	keenetic_omni | \
+ 	mzk-750dhp)
+ 		ucidef_set_interfaces_lan_wan "eth0.1" "eth0.2"
+ 		ucidef_add_switch "switch0" "1" "1"
+@@ -111,6 +118,12 @@
+ 		ucidef_add_switch_vlan "switch0" "2" "4 6t"
+ 		;;
+ 
++	keenetic_giga )
++		ucidef_set_interfaces_lan_wan "eth0.1" "eth0.2"
++		ucidef_add_switch "switch0" "1" "1"
++		ucidef_add_switch_vlan "switch0" "1" "0 1 2 3 4 5 6t"
++		;;
++
+ 	awm002-evb | \
+ 	awm003-evb | \
+ 	argus-atp52b | \
+@@ -198,6 +211,20 @@
+ 		ucidef_set_interface_lan "eth0"
+ 		;;
+ 
++	keenetic_4g_a)
++		ucidef_set_interfaces_lan_wan "eth0.1" "eth0.2"
++		ucidef_add_switch "switch0" "1" "1"
++		ucidef_add_switch_vlan "switch0" "1" "2 3 6t"
++		ucidef_add_switch_vlan "switch0" "2" "0 6t"
++		;;
++
++	nbg4114)
++		ucidef_set_interfaces_lan_wan "eth0.1" "eth0.2"
++		ucidef_add_switch "switch0" "1" "1"
++		ucidef_add_switch_vlan "switch0" "1" "0 1 6t"
++		ucidef_add_switch_vlan "switch0" "2" "4 6t"
++		;;
++
+ 	*)
+ 		RT3X5X=`cat /proc/cpuinfo | egrep "(RT3.5|RT5350)"`
+ 		if [ -n "${RT3X5X}" ]; then
+@@ -270,6 +297,16 @@
+ 		wan_mac=$(mtd_get_mac_ascii nvram wanmac)
+ 		;;
+ 
++	keenetic | \
++	keenetic_giga | \
++	keenetic_lite_a | \
++	nbg4104 | \
++	keenetic_4g_a | \
++	nbg4114 | \
++	keenetic_start | \
++	keenetic_4g_ii | \
++	keenetic_lite_ii | \
++	keenetic_omni | \
+ 	wcr-150gn)
+                 wan_mac=$(mtd_get_mac_binary factory 40)
+ 		;;
+Index: target/linux/ramips/base-files/etc/diag.sh
+===================================================================
+--- target/linux/ramips/base-files/etc/diag.sh	(revision 42231)
++++ target/linux/ramips/base-files/etc/diag.sh	(working copy)
+@@ -85,6 +85,18 @@
+ 	mpr-a2)
+ 		status_led="hame:red:power"
+ 		;;
++	keenetic|\
++	keenetic_giga|\
++	keenetic_lite_a|\
++	nbg4104|\
++	keenetic_4g_a|\
++	nbg4114|\
++	keenetic_start|\
++	keenetic_4g_ii|\
++	keenetic_lite_ii|\
++	keenetic_omni)
++		status_led="zyxel:green:power"
++		;;
+ 	nbg-419n)
+ 		status_led="nbg-419n:green:power"
+ 		;;
+Index: target/linux/ramips/base-files/lib/preinit/06_set_iface_mac
+===================================================================
+--- target/linux/ramips/base-files/lib/preinit/06_set_iface_mac	(revision 41429)
++++ target/linux/ramips/base-files/lib/preinit/06_set_iface_mac	(working copy)
+@@ -72,6 +72,16 @@
+ 	ip2202 |\
+ 	rt-n13u |\
+ 	hw550-3g |\
++	keenetic |\
++	keenetic_giga |\
++	keenetic_lite_a |\
++	nbg4104 |\
++	keenetic_4g_a |\
++	nbg4114 |\
++	keenetic_start |\
++	keenetic_4g_ii |\
++	keenetic_lite_ii |\
++	keenetic_omni |\
+ 	nbg-419n |\
+ 	omni-emb |\
+ 	omni-emb-hpm |\
+Index: target/linux/ramips/base-files/lib/ramips.sh
+===================================================================
+--- target/linux/ramips/base-files/lib/ramips.sh	(revision 42231)
++++ target/linux/ramips/base-files/lib/ramips.sh	(working copy)
+@@ -148,6 +148,9 @@
+ 	*"Asus RT-N14U")
+ 		name="rt-n14u"
+ 		;;
++	*"Asus RT-N14U")
++		name="rt-n14u"
++		;;
+ 	*"Asus RT-N13U")
+ 		name="rt-n13u"
+ 		;;
+@@ -322,6 +325,36 @@
+ 	*"Sercomm NA930")
+ 		name="na930"
+ 		;;
++	*"ZyXEL Keenetic")
++		name="keenetic"
++		;;
++	*"ZyXEL Keenetic Giga")
++		name="keenetic_giga"
++		;;
++	*"ZyXEL Keenetic Lite rev.A")
++		name="keenetic_lite_a"
++		;;
++	*"ZyXEL Keenetic Lite rev.B")
++		name="nbg4104"
++		;;
++	*"ZyXEL Keenetic 4G rev.A")
++		name="keenetic_4g_a"
++		;;
++	*"ZyXEL Keenetic 4G rev.B")
++		name="nbg4114"
++		;;
++	*"ZyXEL Keenetic Start")
++		name="keenetic_start"
++		;;
++	*"ZyXEL Keenetic 4G II")
++		name="keenetic_4g_ii"
++		;;
++	*"ZyXEL Keenetic Lite II")
++		name="keenetic_lite_ii"
++		;;
++	*"ZyXEL Keenetic Omni")
++		name="keenetic_omni"
++		;;
+ 	*"Zbtlink ZBT-WA05")
+ 		name="zbt-wa05"
+ 		;;
+Index: target/linux/ramips/base-files/lib/upgrade/platform.sh
+===================================================================
+--- target/linux/ramips/base-files/lib/upgrade/platform.sh	(revision 42231)
++++ target/linux/ramips/base-files/lib/upgrade/platform.sh	(working copy)
+@@ -60,6 +60,16 @@
+ 	mpr-a1 | \
+ 	mpr-a2 | \
+ 	mzk-w300nh2 | \
++	keenetic | \
++	keenetic_giga | \
++	keenetic_lite_a | \
++	nbg4104 | \
++	keenetic_4g_a | \
++	nbg4114 | \
++	keenetic_start | \
++	keenetic_4g_ii | \
++	keenetic_lite_ii | \
++	keenetic_omni | \
+ 	nbg-419n | \
+ 	nw718 | \
+ 	omni-emb | \

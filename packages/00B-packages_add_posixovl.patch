@@ -1,0 +1,164 @@
+Index: package/utils/posixovl/Makefile
+===================================================================
+--- package/utils/posixovl/Makefile	(revision 0)
++++ package/utils/posixovl/Makefile	(working copy)
+@@ -0,0 +1,68 @@
++#
++# Copyright (C) 2011-2012 Entware
++# Copyright (C) 2014 Erinome.net
++#
++# This is free software, licensed under the GNU General Public License v2.
++# See /LICENSE for more information.
++#
++
++include $(TOPDIR)/rules.mk
++
++PKG_NAME:=posixovl
++PKG_VERSION:=1.2
++PKG_MD5SUM:=02630aba4478f661ec6a247338a3d54e
++PKG_RELEASE:=1
++
++PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
++PKG_SOURCE_URL:=@SF/posixovl
++PKG_BUILD_DIR:=$(BUILD_DIR)/posixovl
++# PKG_BUILD_DEPENDS:=util-linux
++PKG_FIXUP:=autoreconf
++PKG_INSTALL:=1
++
++include $(INCLUDE_DIR)/package.mk
++
++define Package/posixovl/Default
++  URL:=http://posixovl.sourceforge.net/
++  SUBMENU:=Filesystem
++endef
++
++define Package/posixovl
++$(call Package/posixovl/Default)
++  SECTION:=utils
++  CATEGORY:=Filesystem
++  TITLE:=POSIX Overlay Filesystem (posixovl)
++  DEPENDS:=
++endef
++
++PKG_INSTALL:=1
++
++include $(INCLUDE_DIR)/package.mk
++include $(INCLUDE_DIR)/nls.mk
++
++define Package/posixovl
++	SECTION:=utils
++	CATEGORY:=Utilities
++	SUBMENU:=Filesystem
++	DEPENDS:=+libfuse +libattr
++	TITLE:=POSIX Overlay Filesystem
++	URL:=http://sourceforge.net/projects/posixovl/
++	MAINTAINER:=Soul Trace <S-trace@list.ru>
++endef
++
++define Package/posixovl/description
++ A FUSE filesystem that provides POSIX functionality - UNIX-style permissions, 
++ ownership, special files - for filesystems that do not have such, e.g. vfat. 
++ It is a modern equivalent of the UMSDOS fs.
++endef
++
++CONFIGURE_ARGS += --prefix=/usr
++
++TARGET_CPPFLAGS += -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE
++
++define Package/posixovl/install
++	$(INSTALL_DIR) $(1)/sbin
++	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/mount.posixovl $(1)/sbin
++endef
++
++$(eval $(call BuildPackage,posixovl))
+Index: package/utils/posixovl/patches/fix_types_conflict_in_strncpy.patch
+===================================================================
+--- package/utils/posixovl/patches/fix_types_conflict_in_strncpy.patch	(revision 0)
++++ package/utils/posixovl/patches/fix_types_conflict_in_strncpy.patch	(working copy)
+@@ -0,0 +1,18 @@
++diff -ur posixovl/posixovl.c posixovl_fixed/posixovl.c
++--- posixovl/posixovl.c	2014-04-30 21:25:07.000000000 +0400
+++++ posixovl_fixed/posixovl.c	2014-04-30 21:27:57.000000000 +0400
++@@ -162,12 +162,13 @@
++ 	return in + 1;
++ }
++ 
+++/*
++ static char *strlcpy(char *dest, const char *src, size_t n)
++ {
++ 	strncpy(dest, src, n);
++ 	dest[n-1] = '\0';
++ 	return dest;
++-}
+++}*/
++ 
++ /*
++  * __hl_dtoi - build the HL.I-node path from the HL.D-node path
+Index: package/utils/posixovl/patches/remove_xattr_support.patch
+===================================================================
+--- package/utils/posixovl/patches/remove_xattr_support.patch	(revision 0)
++++ package/utils/posixovl/patches/remove_xattr_support.patch	(working copy)
+@@ -0,0 +1,63 @@
++diff -ur posixovl/configure.ac posixovl_fixed/configure.ac
++--- posixovl/configure.ac	2011-04-17 05:31:09.000000000 +0400
+++++ posixovl_fixed/configure.ac	2014-04-30 21:26:46.744306162 +0400
++@@ -14,7 +14,7 @@
++ AC_SUBST([regular_CPPFLAGS])
++ AC_SUBST([regular_CFLAGS])
++ 
++-AC_CHECK_HEADER(attr/xattr.h, [], AC_MSG_ERROR([libattr-devel not installed]))
+++# AC_CHECK_HEADER(attr/xattr.h, [], AC_MSG_ERROR([libattr-devel not installed]))
++ 
++ # FUSE >= 2.7.0 got subtype name support.
++ # 2.6.5 does not, but has a similar thing.
++diff -ur posixovl/posixovl.c posixovl_fixed/posixovl.c
++--- posixovl/posixovl.c	2011-04-17 05:28:27.000000000 +0400
+++++ posixovl_fixed/posixovl.c	2014-04-30 21:25:07.000000000 +0400
++@@ -32,7 +32,6 @@
++ #include <string.h>
++ #include <unistd.h>
++ #include <asm/unistd.h>
++-#include <attr/xattr.h>
++ #include "config.h"
++ #ifndef S_IRUGO
++ #	define S_IRUGO (S_IRUSR | S_IRGRP | S_IROTH)
++@@ -1082,7 +1081,8 @@
++ static int posixovl_getxattr(const char *path, const char *name,
++     char *value, size_t size)
++ {
++-	XRET(lgetxattr(at(path), name, value, size));
+++// 	XRET(lgetxattr(at(path), name, value, size));
+++	return -ENOSYS;
++ }
++ 
++ static int posixovl1_fgetattr(const char *path, struct stat *sb,
++@@ -1350,7 +1350,8 @@
++ 
++ static int posixovl_listxattr(const char *path, char *list, size_t size)
++ {
++-	XRET(llistxattr(at(path), list, size));
+++// 	XRET(llistxattr(at(path), list, size));
+++	return -ENOSYS;
++ }
++ 
++ static int posixovl_mkdir(const char *path, mode_t mode)
++@@ -1575,7 +1576,8 @@
++ 
++ static int posixovl_removexattr(const char *path, const char *name)
++ {
++-	XRET(lremovexattr(path, name));
+++// 	XRET(lremovexattr(path, name));
+++	return -ENOSYS;
++ }
++ 
++ static int posixovl_rename(const char *oldpath, const char *newpath)
++@@ -1659,7 +1661,8 @@
++ static int posixovl_setxattr(const char *path, const char *name,
++     const char *value, size_t size, int flags)
++ {
++-	XRET(lsetxattr(at(path), name, value, size, flags));
+++// 	XRET(lsetxattr(at(path), name, value, size, flags));
+++	return -ENOSYS;
++ }
++ 
++ static int posixovl_statfs(const char *path, struct statvfs *sb)

@@ -1,0 +1,27 @@
+Index: package/base-files/files/lib/functions/uci-defaults.sh
+===================================================================
+--- package/base-files/files/lib/functions/uci-defaults.sh	(revision 42231)
++++ package/base-files/files/lib/functions/uci-defaults.sh	(working copy)
+@@ -138,6 +138,22 @@
+ 	UCIDEF_LEDS_CHANGED=1
+ }
+ 
++ucidef_set_led_heartbeat() {
++        local cfg="led_$1"
++        local name=$2
++        local sysfs=$3
++
++        uci -q get system.$cfg && return 0
++
++        uci batch <<EOF
++set system.$cfg='led'
++set system.$cfg.name='$name'
++set system.$cfg.sysfs='$sysfs'
++set system.$cfg.trigger='heartbeat'
++EOF
++        UCIDEF_LEDS_CHANGED=1
++}
++
+ ucidef_commit_leds()
+ {
+ 	[ "$UCIDEF_LEDS_CHANGED" == "1" ] && uci commit system

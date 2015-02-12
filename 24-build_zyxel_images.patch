@@ -1,0 +1,153 @@
+Index: target/linux/ramips/image/Makefile
+===================================================================
+--- target/linux/ramips/image/Makefile	(revision 42231)
++++ target/linux/ramips/image/Makefile	(working copy)
+@@ -69,6 +69,10 @@
+ endef
+ 
+ define MkImageSysupgrade/squashfs
++	# $(1) = squashfs/initramfs
++	# $(2) = lowercase board name
++	# $(3) = max allowed size
++	# $(4) = type (sysupgrade/factory)
+ 	$(eval output_name=$(IMG_PREFIX)-$(2)-$(1)-$(if $(4),$(4),sysupgrade).bin)
+ 	cat $(KDIR)/vmlinux-$(2).uImage $(KDIR)/root.$(1) > $(KDIR)/$(output_name)
+ 	$(call prepare_generic_squashfs,$(KDIR)/$(output_name))
+@@ -80,6 +84,9 @@
+ endef
+ 
+ define PatchKernelLzmaDtb
++	# $(1) = lowercase board name
++	# $(2) = dts file
++	# $(3) = default/-initramfs
+ 	cp $(KDIR)/vmlinux$(3) $(KDIR)/vmlinux-$(1)$(3)
+ 	$(LINUX_DIR)/scripts/dtc/dtc -O dtb -o $(KDIR)/$(2).dtb ../dts/$(2).dts
+ 	$(STAGING_DIR_HOST)/bin/patch-dtb $(KDIR)/vmlinux-$(1)$(3) $(KDIR)/$(2).dtb
+@@ -87,11 +94,21 @@
+ endef
+ 
+ define MkImageLzmaDtb
++	# $(1) = lowercase board name
++	# $(2) = dts file
++	# $(3) = uImage text
++	# $(4) = default/-initramfs
+ 	$(call PatchKernelLzmaDtb,$(1),$(2),$(4))
+ 	$(call MkImage,lzma,$(KDIR)/vmlinux-$(1)$(4).bin.lzma,$(KDIR)/vmlinux-$(1)$(4).uImage,$(3))
+ endef
+ 
+ define BuildFirmware/OF
++	# $(1) = squashfs/initramfs
++	# $(2) = lowercase board name
++	# $(3) = dts file
++	# $(4) = max allowed size
++	# $(5) = uImage text
++	# $(6) = type (sysupgrade/factory)
+ 	$(call MkImageLzmaDtb,$(2),$(3),$(5))
+ 	$(call MkImageSysupgrade/$(1),$(1),$(2),$(4),$(6))
+ endef
+@@ -107,6 +124,7 @@
+ # $(1) = squashfs/initramfs
+ # $(2) = lowercase board name
+ # $(3) = dts file
++# $(4) = uImage text
+ ralink_default_fw_size_4M=3866624
+ BuildFirmware/Default4M/squashfs=$(call BuildFirmware/OF,$(1),$(2),$(3),$(ralink_default_fw_size_4M),$(4))
+ BuildFirmware/Default4M/initramfs=$(call BuildFirmware/OF/initramfs,$(1),$(2),$(3),$(4))
+@@ -116,6 +134,7 @@
+ # $(1) = squashfs/initramfs
+ # $(2) = lowercase board name
+ # $(3) = dts file
++# $(4) = uImage text
+ ralink_default_fw_size_8M=8060928
+ BuildFirmware/Default8M/squashfs=$(call BuildFirmware/OF,$(1),$(2),$(3),$(ralink_default_fw_size_8M),$(4))
+ BuildFirmware/Default8M/initramfs=$(call BuildFirmware/OF/initramfs,$(1),$(2),$(3),$(4))
+@@ -447,6 +466,53 @@
+ Image/Build/Profile/DIR-300-B7=$(call BuildFirmware/Default4M/$(1),$(1),dir-300-b7,DIR-300-B7)
+ Image/Build/Profile/DIR-320-B1=$(call BuildFirmware/Default8M/$(1),$(1),dir-320-b1,DIR-320-B1)
+ 
++define BuildFirmware/ZyXEL_Keenetic_series/squashfs
++	# $(1)=squashfs
++	# $(2)=lowercase_board_name
++	# $(3)=dts_file
++	# $(4)=max_FW_size
++	# $(5)=uImage_size
++	# $(6)=product_code
++	$(eval max_size=$(shell expr $(4) + 4))
++	$(call BuildFirmware/OF,$(1),$(2),$(3),$(max_size))
++	$(eval output_name=$(IMG_PREFIX)-$(2)-$(1)-factory)
++	
++	@if [ -f $(BIN_DIR)/$(IMG_PREFIX)-$(2)-$(1)-sysupgrade.bin ]; then \
++		if [ `stat -c%s "$(KDIR)/vmlinux-$(2).bin.lzma"` -gt `expr $(5) - 64` ]; then \
++			echo "Warning: unable to build Factory image! $(KDIR)/vmlinux-$(2).bin.lzma is too big: `stat -c%s "$(KDIR)/vmlinux-$(2).bin.lzma"` (`expr $(5) - 64` max) " >&2; \
++			rm $(KDIR)/vmlinux-$(2).bin.lzma; \
++		else \
++			echo "Generating Factory image!" >&2; \
++			dd if=$(KDIR)/vmlinux-$(2).bin.lzma of=$(KDIR)/vmlinux-$(2).bin.lzma.factory bs=`expr $(5) - 64` conv=sync; \
++		fi; \
++	fi
++	$(call MkImage,lzma,$(KDIR)/vmlinux-$(2).bin.lzma.factory,$(KDIR)/vmlinux-$(2).uImage.factory,$(3))
++	@if [ -f $(KDIR)/vmlinux-$(2).uImage.factory ] ; then \
++		cat $(KDIR)/vmlinux-$(2).uImage.factory $(KDIR)/root.$(1) > $(KDIR)/$(output_name).bin; \
++		if [ `stat -c%s "$(KDIR)/$(output_name).bin"` -gt $(max_size) ]; then \
++			echo "Warning: $(KDIR)/$(output_name).bin is too big: `stat -c%s "$(KDIR)/$(output_name).bin"` ($(max_size) max) " >&2; \
++		else \
++			$(CP) $(KDIR)/$(output_name).bin $(BIN_DIR)/$(output_name).bin; \
++			dd if=$(BIN_DIR)/$(output_name).bin of=$(BIN_DIR)/$(output_name).factory bs=65536 conv=sync; \
++			mv $(BIN_DIR)/$(output_name).factory $(BIN_DIR)/$(output_name).bin; \
++			$(STAGING_DIR_HOST)/bin/zyimage -v "$(output_name)" -d $(6) $(BIN_DIR)/$(output_name).bin; \
++		fi; \
++	else \
++		echo "Warning: Refusing to try to create Factory image due to Sysupgrade image $(BIN_DIR)/$(IMG_PREFIX)-$(2)-$(1)-sysupgrade.bin was not created!"; \
++	fi
++endef
++
++# 3538948(=0x360004) = 3866624(ralink_default_fw_size_4M=0x3B0000) - 327680(=0x50000) + 4
++# 7733252(=0x760004) = 8060928(ralink_default_fw_size_8M=0x7B0000) - 327680(=0x50000) + 4
++Image/Build/Profile/KEENETIC=$(call BuildFirmware/ZyXEL_Keenetic_series/$(1),$(1),keenetic,KEENETIC,7733252,1245184,0x00004215)
++Image/Build/Profile/KEENETIC_GIGA=$(call BuildFirmware/ZyXEL_Keenetic_series/$(1),$(1),keenetic_giga,KEENETIC_GIGA,7733252,1245184,0x00004615)
++Image/Build/Profile/KEENETIC_LITE_A=$(call BuildFirmware/ZyXEL_Keenetic_series/$(1),$(1),keenetic_lite_a,KEENETIC_LITE_A,3538948,983040,0x00000417)
++Image/Build/Profile/NBG4104=$(call BuildFirmware/ZyXEL_Keenetic_series/$(1),$(1),nbg4104,NBG4104,7733252,1245184,0x00004104)
++Image/Build/Profile/KEENETIC_4G_A=$(call BuildFirmware/ZyXEL_Keenetic_series/$(1),$(1),keenetic_4g_a,KEENETIC_4G_A,3538948,983040,0x00004115)
++Image/Build/Profile/NBG4114=$(call BuildFirmware/ZyXEL_Keenetic_series/$(1),$(1),nbg4114,NBG4114,7733252,1245184,0x00005115)
++Image/Build/Profile/KEENETIC_START=$(call BuildFirmware/ZyXEL_Keenetic_series/$(1),$(1),keenetic_start,KEENETIC_START,3538948,1048576,0x00001202)
++Image/Build/Profile/KEENETIC_4G_II=$(call BuildFirmware/ZyXEL_Keenetic_series/$(1),$(1),keenetic_4g_ii,KEENETIC_4G_II,3538948,1048576,0x00001212)
++
+ Image/Build/Profile/NBG-419N=$(call BuildFirmware/Default4M/$(1),$(1),nbg-419n,NBG-419N)
+ 
+ Image/Build/Profile/MZKW300NH2=$(call BuildFirmware/Edimax/$(1),$(1),mzk-w300nh2,MZK-W300NH2,$(mzkw300nh2_mtd_size),CSYS,RN52,0x50000,0xc0000)
+@@ -562,6 +628,14 @@
+ 
+ ifeq ($(SUBTARGET),rt305x)
+ define Image/Build/Profile/Default
++	$(call Image/Build/Profile/KEENETIC,$(1))
++	$(call Image/Build/Profile/KEENETIC_GIGA,$(1))
++	$(call Image/Build/Profile/KEENETIC_LITE_A,$(1))
++	$(call Image/Build/Profile/NBG4104,$(1))
++	$(call Image/Build/Profile/KEENETIC_4G_A,$(1))
++	$(call Image/Build/Profile/NBG4114,$(1))
++	$(call Image/Build/Profile/KEENETIC_START,$(1))
++	$(call Image/Build/Profile/KEENETIC_4G_II,$(1))
+ 	$(call Image/Build/Profile/3G6200N,$(1))
+ 	$(call Image/Build/Profile/3G6200NL,$(1))
+ 	$(call Image/Build/Profile/3G300M,$(1))
+@@ -760,6 +834,11 @@
+ Image/Build/Profile/WRTNODE=$(call BuildFirmware/Default16M/$(1),$(1),wrtnode,WRTNODE)
+ Image/Build/Profile/ZBT-WA05=$(call BuildFirmware/Default8M/$(1),$(1),zbt-wa05,ZBT-WA05)
+ 
++zyxel_default_fw_size_8M=7733248
++Image/Build/Profile/KEENETIC_LITE_II=$(call BuildFirmware/ZyXEL_Keenetic_series/$(1),$(1),keenetic_lite_ii,KEENETIC_LITE_II,$(zyxel_default_fw_size_8M),1245184,0x00001302)
++Image/Build/Profile/KEENETIC_OMNI=$(call BuildFirmware/ZyXEL_Keenetic_series/$(1),$(1),keenetic_omni,KEENETIC_OMNI,$(zyxel_default_fw_size_8M),1245184,0x00001312)
++
++
+ ifeq ($(SUBTARGET),mt7620n)
+ define Image/Build/Profile/Default
+ 	$(call Image/Build/Profile/MLW221,$(1))
+@@ -767,6 +846,8 @@
+ 	$(call Image/Build/Profile/RT-N14U,$(1))
+ 	$(call Image/Build/Profile/WR8305RT,$(1))
+ 	$(call Image/Build/Profile/WRTNODE,$(1))
++	$(call Image/Build/Profile/KEENETIC_LITE_II,$(1))
++	$(call Image/Build/Profile/KEENETIC_OMNI,$(1))
+ 	$(call Image/Build/Profile/ZBT-WA05,$(1))
+ endef
+ endif

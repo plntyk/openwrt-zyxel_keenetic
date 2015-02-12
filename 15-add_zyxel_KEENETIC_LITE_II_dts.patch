@@ -1,0 +1,144 @@
+Index: target/linux/ramips/dts/KEENETIC_LITE_II.dts
+===================================================================
+--- target/linux/ramips/dts/KEENETIC_LITE_II.dts	(revision 0)
++++ target/linux/ramips/dts/KEENETIC_LITE_II.dts	(working copy)
+@@ -0,0 +1,139 @@
++/dts-v1/;
++
++/include/ "mt7620n.dtsi"
++
++/ {
++	compatible = "KEENETIC_LITE_II", "ralink,mt7620n-soc";
++	model = "Keenetic Lite II";
++
++	pinctrl {
++		state_default: pinctrl0 {
++			gpio {
++				ralink,group = "i2c", "uartf", "mdio", "pa", "rgmii1", "wdt";
++				ralink,function = "gpio";
++			};
++		};
++	};
++
++	palmbus@10000000 {
++		gpio2: gpio@660 {
++			status = "okay";
++		};
++
++		gpio3: gpio@688 {
++			status = "okay";
++		};
++
++		spi@b00 {
++			status = "okay";
++
++			m25p80@0 {
++				#address-cells = <1>;
++				#size-cells = <1>;
++				#compatible = "mx25l6405d";
++				compatible = "w25q128";
++				reg = <0 0>;
++				linux,modalias = "m25p80", "w25q128";
++				spi-max-frequency = <10000000>;
++
++				partition@0 {
++					label = "u-boot";
++					reg = <0x0 0x30000>;
++					read-only;
++				};
++
++				partition@30000 {
++					label = "u-boot-env";
++					reg = <0x30000 0x10000>;
++					read-only;
++				};
++
++				factory: partition@40000 {
++					label = "factory";
++					reg = <0x40000 0x10000>;
++					read-only;
++				};
++
++				partition@50000 {
++					label = "firmware";
++					reg = <0x50000 0x7b0000>;
++				};
++			};
++		};
++	};
++	
++	wmac@10180000 {
++		ralink,mtd-eeprom = <&factory 0>;
++	};
++
++	gpio-leds {
++		compatible = "gpio-leds";
++		power {
++			label = "zyxel:green:power";
++			gpios = <&gpio0 20 1>;
++		};
++		wlan {
++			label = "zyxel:green:wlan";
++			gpios = <&gpio0 72 1>;
++		};
++		port0 {
++			label = "zyxel:green:port0";
++			gpios = <&gpio0 44 1>;
++		};
++		port1 {
++			label = "zyxel:green:port1";
++			gpios = <&gpio0 43 1>;
++		};
++		port2 {
++			label = "zyxel:green:port2";
++			gpios = <&gpio0 42 1>;
++		};
++		port3 {
++			label = "zyxel:green:port3";
++			gpios = <&gpio0 41 1>;
++		};
++		port4 {
++			label = "zyxel:green:port4";
++			gpios = <&gpio0 40 1>;
++		};
++	};
++	
++	gpio-keys-polled {
++	compatible = "gpio-keys-polled";
++	#address-cells = <1>;
++	#size-cells = <0>;
++	poll-interval = <20>;
++		reset {
++			label = "reset";
++			gpios = <&gpio0 1 1>;
++			linux,code = <0x198>;
++		};
++		wps {
++			label = "wps";
++			gpios = <&gpio0 2 1>;
++			linux,code = <0x211>;
++		};
++	};
++
++	ehci@101c0000 {
++		status = "okay";
++	};
++
++	ohci@101c1000 {
++		status = "okay";
++	};
++
++	ethernet@10100000 {
++		mtd-mac-address = <&factory 0x4>;
++		ralink,port-map = "wllll";
++	};
++
++	pinctrl {
++		state_default: pinctrl0 {
++			default {
++				ralink,group = "ephy", "wled";
++				ralink,function = "gpio";
++			};
++		};
++	};
++};

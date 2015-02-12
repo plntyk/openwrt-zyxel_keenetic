@@ -1,0 +1,9 @@
+Index: package/base-files/files/etc/group
+===================================================================
+--- package/base-files/files/etc/group	(revision 42231)
++++ package/base-files/files/etc/group	(working copy)
+@@ -8,3 +8,4 @@
+ users:x:100:
+ network:x:101:
+ nogroup:x:65534:
++nobody:x:99:

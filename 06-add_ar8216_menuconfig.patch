@@ -1,0 +1,45 @@
+Index: package/kernel/linux/modules/netdevices.mk
+===================================================================
+--- package/kernel/linux/modules/netdevices.mk	(revision 42231)
++++ package/kernel/linux/modules/netdevices.mk	(working copy)
+@@ -227,6 +227,40 @@
+ $(eval $(call KernelPackage,switch-rtl8366s))
+ 
+ 
++define KernelPackage/switch-ar8216
++  SUBMENU:=$(NETWORK_DEVICES_MENU)
++  TITLE:= Atheros AR8216 switch support
++  DEPENDS:=+kmod-swconfig
++  KCONFIG:=CONFIG_AR8216_PHY \
++		CONFIG_AR8216_PHY_LEDS=y
++  FILES:=$(LINUX_DIR)/drivers/net/phy/ar8216.ko
++  AUTOLOAD:=$(call AutoProbe,ar8216)
++endef
++
++define KernelPackage/switch-ar8216/description
++ Atheros AR8216/AR8316 switch support
++endef
++
++$(eval $(call KernelPackage,switch-ar8216))
++
++
++define KernelPackage/mdio-gpio
++  SUBMENU:=$(NETWORK_DEVICES_MENU)
++  TITLE:= Supports GPIO lib-based MDIO busses
++  DEPENDS:=@GPIO_SUPPORT
++  KCONFIG:=CONFIG_MDIO_BITBANG \
++		CONFIG_MDIO_GPIO
++  FILES:=$(LINUX_DIR)/drivers/net/phy/mdio-gpio.ko $(LINUX_DIR)/drivers/net/phy/mdio-bitbang.ko
++  AUTOLOAD:=$(call AutoProbe,mdio-gpio)
++endef
++
++define KernelPackage/mdio-gpio/description
++ Supports GPIO lib-based MDIO busses
++endef
++
++$(eval $(call KernelPackage,mdio-gpio))
++
++
+ define KernelPackage/natsemi
+   SUBMENU:=$(NETWORK_DEVICES_MENU)
+   TITLE:=National Semiconductor DP8381x series

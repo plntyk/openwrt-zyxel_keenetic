@@ -1,0 +1,225 @@
+Index: files/bin/login.sh
+===================================================================
+--- files/bin/login.sh	(revision 0)
++++ files/bin/login.sh	(working copy)
+@@ -0,0 +1,19 @@
++#!/bin/sh
++# Copyright (C) 2006-2011 OpenWrt.org
++
++if ( ! grep -qs '^root:[!x]\?:' /etc/shadow || \
++     ! grep -qs '^root:[!x]\?:' /etc/passwd ) && \
++   [ -z "$FAILSAFE" ]
++then
++        login
++        exit 0
++else
++cat << EOF
++ === IMPORTANT ============================
++  Use 'passwd' to set your login password
++  this will disable telnet and enable SSH
++ ------------------------------------------
++EOF
++fi
++
++exec /bin/ash --login
+
+Property changes on: files/bin/login.sh
+___________________________________________________________________
+Added: svn:executable
+## -0,0 +1 ##
++*
+\ No newline at end of property
+Index: files/etc/config/dhcp
+===================================================================
+--- files/etc/config/dhcp	(revision 0)
++++ files/etc/config/dhcp	(working copy)
+@@ -0,0 +1,30 @@
++config dnsmasq
++	option domainneeded	1
++	option boguspriv	1
++	option filterwin2k	0  # enable for dial on demand
++	option localise_queries	1
++	option rebind_protection 0  # enable if upstream must not serve RFC1918 addresses
++	#list rebind_domain example.lan  # whitelist RFC1918 responses for domains
++	option local	'/lan/'
++	option domain	'lan'
++	option expandhosts	1
++	option nonegcache	0
++	option authoritative	1
++	option readethers	1
++	option leasefile	'/tmp/dhcp.leases'
++	option resolvfile	'/tmp/resolv.conf.auto'
++	#list server		'/mycompany.local/1.2.3.4'
++	#option nonwildcard	1
++	#list interface		br-lan
++	#list notinterface	lo
++	#list bogusnxdomain     '64.94.110.11'
++
++config dhcp lan
++	option interface	lan
++	option start 	100
++	option limit	150
++	option leasetime	12h
++
++config dhcp wan
++	option interface	wan
++	option ignore	1
+Index: files/etc/config/system
+===================================================================
+--- files/etc/config/system	(revision 0)
++++ files/etc/config/system	(working copy)
+@@ -0,0 +1,11 @@
++config system
++        option hostname OpenWrt
++        option zonename 'Europe/Moscow'
++        option timezone 'MSK-4'
++
++config timeserver ntp
++        list server     0.openwrt.pool.ntp.org
++        list server     1.openwrt.pool.ntp.org
++        list server     2.openwrt.pool.ntp.org
++        list server     3.openwrt.pool.ntp.org
++        option enable_server 0
+Index: files/etc/config/wireless
+===================================================================
+--- files/etc/config/wireless	(revision 0)
++++ files/etc/config/wireless	(working copy)
+@@ -0,0 +1,19 @@
++config wifi-device 'radio0'
++        option type 'mac80211'
++        option channel '11'
++        option hwmode '11ng'
++        option path '10180000.wmac'
++        list ht_capab 'GF'
++        list ht_capab 'SHORT-GI-20'
++        list ht_capab 'SHORT-GI-40'
++        list ht_capab 'RX-STBC1'
++        option txpower '20'
++        option country 'RU'
++        option htmode 'HT40-'
++
++config wifi-iface
++        option device 'radio0'
++        option mode 'ap'
++        option ssid 'OpenWRT'
++        option encryption 'none'
++        option network 'lan'
+Index: files/etc/hotplug.d/block/20-cloud_overlay
+===================================================================
+--- files/etc/hotplug.d/block/20-cloud_overlay	(revision 0)
++++ files/etc/hotplug.d/block/20-cloud_overlay	(working copy)
+@@ -0,0 +1,12 @@
++#!/bin/sh
++echo started cloud_overlay: $0 $*
++ehv
++eval `strings /dev/mtd1|grep 'zyxelsn\|sernumb\|servicetag'`
++# Only one of $zyxelsn and $sernumb should be presented, so other will be NULL and not affect output
++echo -e "login:\n$zyxelsn$sernumb\npassword: \n$servicetag"
++grep -q '/overlay/' "/etc/davfs2/secrets" || echo "/overlay/ $zyxelsn$sernumb \"$servicetag\"" >> "/etc/davfs2/secrets"
++chmod 0600 "/etc/davfs2/secrets"
++echo nameserver 8.8.8.8 >> /etc/resolv.conf
++mount -t davfs https://webdav.yandex.ru "/overlay/"
++mount.posixovl -F /overlay/
++echo block finished!
+\ No newline at end of file
+
+Property changes on: files/etc/hotplug.d/block/20-cloud_overlay
+___________________________________________________________________
+Added: svn:executable
+## -0,0 +1 ##
++*
+\ No newline at end of property
+Index: files/etc/ssl/certs/244b5494.0
+===================================================================
+--- files/etc/ssl/certs/244b5494.0	(revision 0)
++++ files/etc/ssl/certs/244b5494.0	(working copy)
+@@ -0,0 +1 @@
++link DigiCert_High_Assurance_EV_Root_CA.pem
+\ No newline at end of file
+
+Property changes on: files/etc/ssl/certs/244b5494.0
+___________________________________________________________________
+Added: svn:special
+## -0,0 +1 ##
++*
+\ No newline at end of property
+Index: files/etc/ssl/certs/442adcac.0
+===================================================================
+--- files/etc/ssl/certs/442adcac.0	(revision 0)
++++ files/etc/ssl/certs/442adcac.0	(working copy)
+@@ -0,0 +1 @@
++link Certum_Root_CA.pem
+\ No newline at end of file
+
+Property changes on: files/etc/ssl/certs/442adcac.0
+___________________________________________________________________
+Added: svn:special
+## -0,0 +1 ##
++*
+\ No newline at end of property
+Index: files/etc/ssl/certs/6e8bf996.0
+===================================================================
+--- files/etc/ssl/certs/6e8bf996.0	(revision 0)
++++ files/etc/ssl/certs/6e8bf996.0	(working copy)
+@@ -0,0 +1 @@
++link Certum_Root_CA.pem
+\ No newline at end of file
+
+Property changes on: files/etc/ssl/certs/6e8bf996.0
+___________________________________________________________________
+Added: svn:special
+## -0,0 +1 ##
++*
+\ No newline at end of property
+Index: files/etc/ssl/certs/81b9768f.0
+===================================================================
+--- files/etc/ssl/certs/81b9768f.0	(revision 0)
++++ files/etc/ssl/certs/81b9768f.0	(working copy)
+@@ -0,0 +1 @@
++link DigiCert_High_Assurance_EV_Root_CA.pem
+\ No newline at end of file
+
+Property changes on: files/etc/ssl/certs/81b9768f.0
+___________________________________________________________________
+Added: svn:special
+## -0,0 +1 ##
++*
+\ No newline at end of property
+Index: files/etc/ssl/certs/Certum_Root_CA.pem
+===================================================================
+--- files/etc/ssl/certs/Certum_Root_CA.pem	(revision 0)
++++ files/etc/ssl/certs/Certum_Root_CA.pem	(working copy)
+@@ -0,0 +1,19 @@
++-----BEGIN CERTIFICATE-----
++MIIDDDCCAfSgAwIBAgIDAQAgMA0GCSqGSIb3DQEBBQUAMD4xCzAJBgNVBAYTAlBM
++MRswGQYDVQQKExJVbml6ZXRvIFNwLiB6IG8uby4xEjAQBgNVBAMTCUNlcnR1bSBD
++QTAeFw0wMjA2MTExMDQ2MzlaFw0yNzA2MTExMDQ2MzlaMD4xCzAJBgNVBAYTAlBM
++MRswGQYDVQQKExJVbml6ZXRvIFNwLiB6IG8uby4xEjAQBgNVBAMTCUNlcnR1bSBD
++QTCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAM6xwS7TT3zNJc4YPk/E
++jG+AanPIW1H4m9LcuwBcsaD8dQPugfCI7iNS6eYVM42sLQnFdvkrOYCJ5JdLkKWo
++ePhzQ3ukYbDYWMzhbGZ+nPMJXlVjhNWo7/OxLjBos8Q82KxujZlakE403Daaj4GI
++ULdtlkIJ89eVgw1BS7Bqa/j8D35in2fE7SZfECYPCE/wpFcozo+47UX2bu4lXapu
++Ob7kky/ZR6By6/qmW6/KUz/iDsaWVhFu9+lmqSbYf5VT7QqFiLpPKaVCjF62/IUg
++AKpoC6EahQGcxEZjgoi2IrHu/qpGWX7PNSzVttpd90gzFFS269lvzs2I1qsb2pY7
++HVkCAwEAAaMTMBEwDwYDVR0TAQH/BAUwAwEB/zANBgkqhkiG9w0BAQUFAAOCAQEA
++uI3O7+cUus/usESSbLQ5PqKEbq24IXfS1HeCh+YgQYHu4vgRt2PRFze+GXYkHAQa
++TOs9qmdvLdTN/mUxcMUbpgIKumB7bVjCmkn+YzILa+M6wKyrO7Do0wlRjBCDxjTg
++xSvgGrZgFCdsMneMvLJymM/NzD+5yCRCFNZX/OYmQ6kd5YCQzgNUKD73P9P4Te1q
++CjqTE5s7FCMTY5w/0YcneeVMUeMBrYVdGjux1XMQpNPyvG5k9VpWkKjHDkx0Dy5x
++O/fIR/RpbxXyEV6DHpx8Uq79AtoSqFlnGNu8cN2bsWntgM6JQEhqDjXKKWYVIZQs
++6GAqm4VKQPNriiTsBhYscw==
++-----END CERTIFICATE-----
+Index: files/etc/ssl/certs/DigiCert_High_Assurance_EV_Root_CA.pem
+===================================================================
+--- files/etc/ssl/certs/DigiCert_High_Assurance_EV_Root_CA.pem	(revision 0)
++++ files/etc/ssl/certs/DigiCert_High_Assurance_EV_Root_CA.pem	(working copy)
+@@ -0,0 +1 @@
++link /usr/share/ca-certificates/mozilla/DigiCert_High_Assurance_EV_Root_CA.crt
+\ No newline at end of file
+
+Property changes on: files/etc/ssl/certs/DigiCert_High_Assurance_EV_Root_CA.pem
+___________________________________________________________________
+Added: svn:special
+## -0,0 +1 ##
++*
+\ No newline at end of property

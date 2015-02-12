@@ -1,0 +1,149 @@
+Index: build
+===================================================================
+--- build	(revision 0)
++++ build	(working copy)
+@@ -0,0 +1,137 @@
++#!/bin/bash
++# threads_count="$(( `nproc` + 1 ))"
++threads_count=1
++publish_path="~/Dropbox/Public/zyxel/OpenWRT/test"
++build=`cat OpenWRT_build`
++
++FEEDS_LIST="luci ntfs-3g xl2tpd"
++TARGETS="NBG4114 KEENETIC_START KEENETIC_LITE_A KEENETIC_4G_A KEENETIC_4G_II KEENETIC KEENETIC_GIGA NBG4104 KEENETIC_LITE_II KEENETIC_OMNI"
++TARGETS_COUNT=$(echo "$TARGETS"|wc -w)
++rm failures.log 2> /dev/null
++trap Cleanup SIGINT
++
++Notify_user() {
++  echo -ne '\007'
++}
++
++Set_title() {
++  echo -ne $"\033]30;$1\007"
++}
++
++Fix_packages_list() {
++  mkdir -p $1/packages/kmod
++  cp $1/packages/base/kmod*.ipk $1/packages/kmod
++  cp $1/packages/base/kernel*.ipk $1/packages/kmod
++  cp $1/packages/base/Packages* $1/packages/kmod
++  awk  'BEGIN{RS="\n\n"} /^Package: kmod-.*/ { print ;print ""}' < "$1/packages/kmod/Packages" | gzip > "$1/packages/kmod/Packages.gz"
++  zcat "$1/packages/kmod/Packages.gz" > "$1/packages/kmod/Packages"
++}
++
++Build() {
++  target=$1
++  build=$2
++    echo "dest root /
++dest ram /tmp
++lists_dir ext /var/opkg-lists
++option overlay_root /overlay
++src/gz chaos_calmer_base http://downloads.openwrt.org/snapshots/trunk/ramips/packages/base
++src/gz chaos_calmer_luci http://downloads.openwrt.org/snapshots/trunk/ramips/packages/luci
++src/gz chaos_calmer_packages http://downloads.openwrt.org/snapshots/trunk/ramips/packages/packages" > files/etc/opkg.conf
++  make clean
++  echo "CONFIG_DEVEL=y" > .config
++  echo "CONFIG_CCACHE=y" >> .config
++  echo "CONFIG_BUSYBOX_CUSTOM=y" >> .config
++  echo "CONFIG_BUSYBOX_CONFIG_LOGIN=y" >> .config
++
++  if [ "$target" = "KEENETIC_LITE_A" -o "$target" == "KEENETIC_START" -o "$target" == "KEENETIC_4G_A" -o "$target" == "KEENETIC_4G_II" ] ; then
++    echo "$target selected - disabling IPv6!"
++    echo "# CONFIG_IPV6 is not set" >> .config
++    echo "# CONFIG_PACKAGE_dropbear is not set" >> .config
++    echo "# CONFIG_BUSYBOX_DEFAULT_FEATURE_IPV6 is not set" >> .config
++  fi
++  echo "CONFIG_TARGET_ramips=y" >> .config
++  if [ "$target" = "KEENETIC_LITE_II" -o "$target" == "KEENETIC_OMNI" ] ; then
++    echo "CONFIG_TARGET_ramips_mt7620n=y" >> .config
++    echo "CONFIG_TARGET_ramips_mt7620n_$target=y" >> .config
++    echo "src/gz kmod http://www.s-trace.url.ph//files/ZyXEL_Keenetic_Series/OpenWRT/${build}/packages_mt7620n" >> files/etc/opkg.conf
++  else
++    echo "CONFIG_TARGET_ramips_rt305x=y" >> .config
++    echo "CONFIG_TARGET_ramips_rt305x_$target=y" >> .config
++    echo "src/gz kmod http://www.s-trace.url.ph//files/ZyXEL_Keenetic_Series/OpenWRT/${build}/packages" >> files/etc/opkg.conf
++  fi
++  make defconfig
++#    exit 0
++  sed -i "s/# CONFIG_PACKAGE_kmod-\(.*\) is not set/CONFIG_PACKAGE_kmod-\1=m/g" .config
++  make defconfig
++  sed -i "s/# CONFIG_PACKAGE_kmod-\(.*\) is not set/CONFIG_PACKAGE_kmod-\1=m/g" .config
++  make defconfig
++  sed -i "s/# CONFIG_PACKAGE_kmod-\(.*\) is not set/CONFIG_PACKAGE_kmod-\1=m/g" .config
++#   grep -v CONFIG_PACKAGE_kmod-usb-phy-nop .config > .config.new
++#   echo "# CONFIG_PACKAGE_kmod-usb-phy-nop is not set" >> .config.new
++#   mv .config.new .config
++  ( set -o pipefail && make V=s -j $threads_count | tee ${build}_$target-build.log )
++  return_code=$?
++  if [[ $return_code -gt 0 ]]; then
++    echo "FAILED TO BUILD TARGET $target (code $return_code), see ${build}_$target-build.log for details" >> failures.log
++    echo "Building OpenWRT for $target - FAILED in $SECONDS seconds!" >> ${build}_$target-build.log
++    Notify_user
++  else
++    echo "Building OpenWRT for $target - DONE in $SECONDS seconds!" >> ${build}_$target-build.log
++  fi
++  mv ${build}_$target-build.log bin/ramips/
++  gzip bin/ramips/${build}_$target-build.log
++  cp .config bin/ramips/${build}_$target-config
++  cp build_dir/target-mipsel_24kec+dsp_uClibc-0.9.33.2/linux-ramips_rt305x/linux-3.*/.config bin/ramips/${build}_$target-kconfig
++  cp build_dir/target-mipsel_24kec+dsp_uClibc-0.9.33.2/busybox-1.*/.config bin/ramips/${build}_$target-bbconfig
++}
++
++Cleanup(){
++  echo $'\033]30;\007'
++  exit
++}
++
++case $1 in
++all)
++  build=`cat OpenWRT_build`
++  svn diff > "before_upgrade_at_`date`_$build.patch"
++  
++  # Updating sources
++  svn up
++  ./scripts/feeds update -a
++  ./scripts/feeds install $FEEDS_LIST
++  
++  # Cleanup before build process
++  rm tmp/.targetinfo tmp/info/.targetinfo-* tmp/info/.files-targetinfo* tmp/.config* .config
++  rm -rf out 2>/dev/null
++  mkdir out
++
++  # Main loop
++  for target in $TARGETS; do
++    CURRENT_TARGET=$(echo $TARGETS|tr ' ' '\n' | grep -n $target$ | gawk '{print $1}' FS=":")
++    if [[ -f failures.log ]]; then
++      failed_targets=`wc -l failures.log|cut -d ' ' -f 1`
++      Set_title  "Building OpenWRT for $target [$CURRENT_TARGET/$TARGETS_COUNT] (failed $failed_targets)"
++    else
++      Set_title  "Building OpenWRT for $target [$CURRENT_TARGET/$TARGETS_COUNT]"
++    fi
++      Build $target $build
++      mkdir out/$target
++      mv bin/ramips/* out/$target/
++      Fix_packages_list out/$target/
++  done
++  
++  # Finalization
++  svn diff >> "out/svn_$build.diff"
++  let build=build+1
++  echo $build > OpenWRT_build
++  Set_title  "Building OpenWRT - DONE in $SECONDS seconds!"
++  Notify_user
++  ;;
++*)
++  Build $1 $build
++  ;;
++esac
++
++cat failures.log 2> /dev/null
++rm failures.log 2> /dev/null
++Cleanup
+
+Property changes on: build
+___________________________________________________________________
+Added: svn:executable
+## -0,0 +1 ##
++*
+\ No newline at end of property

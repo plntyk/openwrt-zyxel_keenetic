@@ -1,0 +1,314 @@
+Index: package/utils/davfs2/Makefile
+===================================================================
+--- package/utils/davfs2/Makefile	(revision 0)
++++ package/utils/davfs2/Makefile	(working copy)
+@@ -0,0 +1,65 @@
++#
++# Copyright (C) 2011-2012 Entware
++# Copyright (C) 2014 Erinome.net
++#
++# This is free software, licensed under the GNU General Public License v2.
++# See /LICENSE for more information.
++#
++
++include $(TOPDIR)/rules.mk
++
++PKG_NAME:=davfs2
++PKG_VERSION:=1.5.0
++PKG_RELEASE:=1
++
++PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
++PKG_SOURCE_URL:=http://download.savannah.gnu.org/releases/davfs2/
++PKG_MD5SUM:=be573450f32c8dd058577ac9129cde9c
++
++PKG_FIXUP:=autoreconf
++PKG_INSTALL:=1
++
++include $(INCLUDE_DIR)/package.mk
++include $(INCLUDE_DIR)/nls.mk
++
++define Package/davfs2
++	SECTION:=net
++	CATEGORY:=Network
++	SUBMENU:=Filesystem
++	DEPENDS:=+libneon +libfuse
++	TITLE:=Mounts a WebDAV resource
++	URL:=http://savannah.nongnu.org/projects/davfs2
++	MAINTAINER:=Entware team, wl500g-repo.googlecode.com
++endef
++
++define Package/davfs2/description
++ Mount a WebDAV resource as a regular file system. davfs2 will work with
++ most WebDAV servers needing little or no configuration.
++endef
++
++CONFIGURE_ARGS += \
++	--with-libintl-prefix=$(INTL_PREFIX) \
++	--with-libiconv-prefix=$(ICONV_PREFIX) \
++	--with-neon=$(STAGING_DIR)/usr \
++	dav_user=nobody \
++	dav_group=nobody \
++	ssbindir=/sbin \
++	dav_localstatedir=/var/run \
++	dav_syscachedir=/var/cache \
++
++TARGET_CPPFLAGS += -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE
++
++define Package/davfs2/conffiles
++/etc/davfs2/davfs2.conf
++/etc/davfs2/secrets
++endef
++
++define Package/davfs2/install
++	$(INSTALL_DIR) $(1)/sbin
++	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/{,u}mount.davfs $(1)/sbin
++	$(INSTALL_DIR) $(1)/etc/davfs2/certs/private
++	$(INSTALL_CONF) $(PKG_INSTALL_DIR)/etc/davfs2/{davfs2.conf,secrets} $(1)/etc/davfs2/
++	$(INSTALL_DIR) $(1)/tmp/{run,cache}
++endef
++
++$(eval $(call BuildPackage,davfs2))
+Index: package/utils/davfs2/patches/030-syslog-uclibc.patch
+===================================================================
+--- package/utils/davfs2/patches/030-syslog-uclibc.patch	(revision 0)
++++ package/utils/davfs2/patches/030-syslog-uclibc.patch	(working copy)
+@@ -0,0 +1,75 @@
++--- a/src/webdav.c
+++++ b/src/webdav.c
++@@ -38,9 +38,7 @@
++ #include <limits.h>
++ #endif
++ #include <stdio.h>
++-#ifdef HAVE_STDLIB_H
++ #include <stdlib.h>
++-#endif
++ #include <string.h>
++ #ifdef HAVE_SYSLOG_H
++ #include <syslog.h>
++@@ -149,7 +147,11 @@ static const ne_propname quota_names[] =
++     {NULL, NULL}
++ };
++ 
++-static size_t log_bufsize = 512;
+++typedef struct {
+++  char *buffer;
+++  size_t size;
+++} log_buffer_t;
+++static const size_t log_bufsize = 1024;
++ 
++ static char *none_match_header = "If-None-Match: *\r\n";
++ 
++@@ -352,7 +354,8 @@ dav_init_webdav(const dav_args *args)
++         error(EXIT_FAILURE, errno, _("socket library initialization failed"));
++ 
++     if (args->neon_debug & ~NE_DBG_HTTPPLAIN) {
++-        char *buf = malloc(log_bufsize);
+++        log_buffer_t *buf = malloc(sizeof(log_buffer_t));
+++        buf->buffer = malloc(log_bufsize);
++         cookie_io_functions_t *log_func = malloc(sizeof(cookie_io_functions_t));
++         if (!log_func) abort();
++         log_func->read = NULL;
++@@ -1537,21 +1540,27 @@ log_writer(void *cookie, const char *buf
++ 
++     size_t written = 0;
++     const char *bpos = buffer;
+++    log_buffer_t *log_buf = (log_buffer_t *)cookie;
+++    char *spos = log_buf->buffer;
+++    char *cpos = &spos[log_buf->size];
++     while (written < size) {
++-        size_t n = 2;
++-        char *cpos = (char *) cookie;
++-        while (n < log_bufsize && written < size) {
++-            if (*bpos == '%') {
++-                *cpos++ = '%';
++-                n++;
++-            }
++-            *cpos++ = *bpos++;
++-            n++;
++-            written++;
+++        /* if there is no buffering we have to take care of printing
+++           as syslog treats each call as a new line. Take care not to
+++           overflow buffer if text is too long */
+++        if (*bpos == '\n' || cpos - spos >= log_bufsize) {
+++            *cpos = '\0';
+++            syslog(LOG_MAKEPRI(LOG_DAEMON, LOG_DEBUG), "%s", log_buf->buffer);
+++            /* restart filling our output buffer */
+++            cpos = log_buf->buffer;
+++        } else {
+++            *cpos++ = *bpos;
++         }
++-        *cpos = '\0';
++-        syslog(LOG_MAKEPRI(LOG_DAEMON, LOG_DEBUG), "%s", (char *) cookie);
+++        bpos++;
+++        written++;
++     }
+++
+++    /* subtract ending address from starting address to current get buffer size */
+++    log_buf->size = cpos - spos;
++     return written;
++ }
++ 
+Index: package/utils/davfs2/patches/040-cache.patch
+===================================================================
+--- package/utils/davfs2/patches/040-cache.patch	(revision 0)
++++ package/utils/davfs2/patches/040-cache.patch	(working copy)
+@@ -0,0 +1,116 @@
++--- a/src/cache.c
+++++ b/src/cache.c
++@@ -55,7 +55,6 @@
++ #ifdef HAVE_SYS_TYPES_H
++ #include <sys/types.h>
++ #endif
++-#include <sys/xattr.h>
++ 
++ #include <ne_alloc.h>
++ #include <ne_string.h>
++@@ -124,6 +123,105 @@ static const char* const type[] = {
++     [END] = NULL
++ };
++ 
+++#define PWD_BUFFER_SIZE 1024
+++
+++struct passwd *__getpwent(int pwd_fd)
+++{
+++  static char line_buff[PWD_BUFFER_SIZE];
+++  static struct passwd passwd;
+++  char *field_begin;
+++  char *endptr;
+++  char *gid_ptr=NULL;
+++  char *uid_ptr=NULL;
+++  int line_len;
+++  int i;
+++
+++  /* We use the restart label to handle malformatted lines */
+++  restart:
+++  /* Read the passwd line into the static buffer using a minimal of
+++     syscalls. */
+++  if ((line_len = read(pwd_fd, line_buff, PWD_BUFFER_SIZE)) <= 0)
+++    return NULL;
+++  field_begin = strchr(line_buff, '\n');
+++  if (field_begin != NULL)
+++    lseek(pwd_fd, (long) (1 + field_begin - (line_buff + line_len)),
+++        SEEK_CUR);
+++  else {            /* The line is too long - skip it. :-\ */
+++
+++    do {
+++      if ((line_len = read(pwd_fd, line_buff, PWD_BUFFER_SIZE)) <= 0)
+++        return NULL;
+++    } while (!(field_begin = strchr(line_buff, '\n')));
+++    lseek(pwd_fd, (long) (field_begin - line_buff) - line_len + 1,
+++        SEEK_CUR);
+++    goto restart;
+++  }
+++  if (*line_buff == '#' || *line_buff == ' ' || *line_buff == '\n' ||
+++    *line_buff == '\t')
+++    goto restart;
+++  *field_begin = '\0';
+++
+++  /* We've read the line; now parse it. */
+++  field_begin = line_buff;
+++  for (i = 0; i < 7; i++) {
+++    switch (i) {
+++    case 0:
+++      passwd.pw_name = field_begin;
+++      break;
+++    case 1:
+++      passwd.pw_passwd = field_begin;
+++      break;
+++    case 2:
+++      uid_ptr = field_begin;
+++      break;
+++    case 3:
+++      gid_ptr = field_begin;
+++      break;
+++    case 4:
+++      passwd.pw_gecos = field_begin;
+++      break;
+++    case 5:
+++      passwd.pw_dir = field_begin;
+++      break;
+++    case 6:
+++      passwd.pw_shell = field_begin;
+++      break;
+++    }
+++    if (i < 6) {
+++      field_begin = strchr(field_begin, ':');
+++      if (field_begin == NULL)
+++        goto restart;
+++      *field_begin++ = '\0';
+++    }
+++  }
+++  passwd.pw_gid = (gid_t) strtoul(gid_ptr, &endptr, 10);
+++  if (*endptr != '\0')
+++    goto restart;
+++
+++  passwd.pw_uid = (uid_t) strtoul(uid_ptr, &endptr, 10);
+++  if (*endptr != '\0')
+++    goto restart;
+++
+++  return &passwd;
+++}
+++
+++struct passwd *getpwuid(uid_t uid)
+++{
+++  int passwd_fd;
+++  struct passwd *passwd;
+++
+++  if ((passwd_fd = open("/etc/passwd", O_RDONLY)) < 0)
+++    return NULL;
+++
+++  while ((passwd = __getpwent(passwd_fd)) != NULL)
+++    if (passwd->pw_uid == uid) {
+++      close(passwd_fd);
+++      return passwd;
+++    }
+++
+++  close(passwd_fd);
+++  return NULL;
+++}
++ 
++ /* Private global variables */
++ /*==========================*/
+Index: package/utils/davfs2/patches/070-change-type-to-off64.patch
+===================================================================
+--- package/utils/davfs2/patches/070-change-type-to-off64.patch	(revision 0)
++++ package/utils/davfs2/patches/070-change-type-to-off64.patch	(working copy)
+@@ -0,0 +1,11 @@
++--- a/src/webdav.h
+++++ b/src/webdav.h
++@@ -244,7 +244,7 @@ dav_put(const char *path, const char *ca
++    If quota information is not
++    available, an error is returned and available and used are not changed. */ 
++ int
++-dav_quota(const char *path, off_t *total, off_t *used);
+++dav_quota(const char *path, off64_t *total, off64_t *used);
++ 
++ 
++ /* Sets or resets the execute property of file path.
+Index: package/utils/davfs2/patches/090-rpmatch-fix.patch
+===================================================================
+--- package/utils/davfs2/patches/090-rpmatch-fix.patch	(revision 0)
++++ package/utils/davfs2/patches/090-rpmatch-fix.patch	(working copy)
+@@ -0,0 +1,22 @@
++--- a/src/webdav.c
+++++ b/src/webdav.c
++@@ -2059,15 +2059,12 @@ ssl_verify(void *userdata, int failures,
++                      "verify the fingerprint! The server might be faked\n"
++                      "or there might be a man-in-the-middle-attack.\n"));
++             printf(_("Accept certificate for this session? [y,N] "));
++-            char *s = NULL;
++-            size_t n = 0;
++-            ssize_t len = 0;
++-            len = getline(&s, &n, stdin);
++-            if (len < 0)
+++            char yesno[3];
+++            fflush(stdout);
+++            if (fgets(yesno, sizeof(yesno), stdin) == NULL)
++                 abort();
++-            if (rpmatch(s) > 0)
+++            if (yesno[0] == 'y' || yesno[0] == 'Y')
++                 ret = 0;
++-            free(s);
++     } 
++ 
++     if (failures & NE_SSL_NOTYETVALID)

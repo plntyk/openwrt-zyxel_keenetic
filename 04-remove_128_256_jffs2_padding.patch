@@ -1,0 +1,13 @@
+Index: include/image.mk
+===================================================================
+--- include/image.mk	(revision 42231)
++++ include/image.mk	(working copy)
+@@ -74,7 +74,7 @@
+ 
+ # pad to 4k, 8k, 16k, 64k, 128k, 256k and add jffs2 end-of-filesystem mark
+ define prepare_generic_squashfs
+-	$(STAGING_DIR_HOST)/bin/padjffs2 $(1) 4 8 16 64 128 256
++	$(STAGING_DIR_HOST)/bin/padjffs2 $(1) 4 8 16 64
+ endef
+ 
+ define Image/BuildKernel/Initramfs
