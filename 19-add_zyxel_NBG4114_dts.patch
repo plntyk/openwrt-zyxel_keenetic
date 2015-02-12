@@ -84,7 +84,7 @@ Index: target/linux/ramips/dts/NBG4114.dts
 +		reserved {
 +			label = "zyxel:green:reserved";
 +			gpios = <&gpio0 12 0>;
-+		};		
++		};
 +		internet {
 +			label = "zyxel:green:internet";
 +			gpios = <&gpio0 11 0>;
