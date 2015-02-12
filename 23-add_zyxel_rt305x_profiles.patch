@@ -10,16 +10,16 @@ Index: target/linux/ramips/rt305x/profiles/zyxel.mk
 +# See /LICENSE for more information.
 +#
 +
-+# Для роутеров с USB: 
++# Для роутеров с USB:
 +packages_KMOD_USB:=kmod-usb-core kmod-usb-rt305x-dwc_otg kmod-usb-ohci kmod-usb2 kmod-usb-storage kmod-ledtrig-usbdev
 +packages_LUCI_USB:=luci-proto-3g
 +packages_NET_USB:=kmod-usb-acm kmod-usb-net kmod-usb-net-rndis kmod-usb-serial kmod-usb-serial-option usb-modeswitch
 +packages_FS_USB:=kmod-fs-ext4 kmod-nls-cp1251
-+packages_USB:=$(packages_KMOD_USB) $(packages_LUCI_USB) $(packages_NET_USB) $(packages_FS_USB) 
++packages_USB:=$(packages_KMOD_USB) $(packages_LUCI_USB) $(packages_NET_USB) $(packages_FS_USB)
 +
 +# Для роутеров без USB:
 +# Поддержка davfs2 в качестве overlay пока не реализована!
-+# packages_FS_NET:=davfs2 libneon posixovl 
++# packages_FS_NET:=davfs2 libneon posixovl
 +packages_NOUSB:=$(packages_FS_NET)
 +packages_NOIPv6:=-kmod-ip6tables -kmod-ipv6 -odhcp6c -odhcpd -libip6tc
 +
@@ -69,7 +69,7 @@ Index: target/linux/ramips/rt305x/profiles/zyxel.mk
 +
 +define Profile/NBG4104
 +	NAME:=ZyXEL Keenetic Lite rev.B
-+	PACKAGES:=$(packages_GENERIC) $(packages_NET_ETHERNET) $(packages_NOUSB) $(packages_IPv6) $(packages_LUCI_GENERIC) 
++	PACKAGES:=$(packages_GENERIC) $(packages_NET_ETHERNET) $(packages_NOUSB) $(packages_IPv6) $(packages_LUCI_GENERIC)
 +endef
 +
 +define Profile/NBG4104/Description
