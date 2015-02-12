@@ -66,7 +66,7 @@ Index: target/linux/ramips/dts/KEENETIC_LITE_II.dts
 +			};
 +		};
 +	};
-+	
++
 +	wmac@10180000 {
 +		ralink,mtd-eeprom = <&factory 0>;
 +	};
@@ -102,7 +102,7 @@ Index: target/linux/ramips/dts/KEENETIC_LITE_II.dts
 +			gpios = <&gpio0 40 1>;
 +		};
 +	};
-+	
++
 +	gpio-keys-polled {
 +	compatible = "gpio-keys-polled";
 +	#address-cells = <1>;
