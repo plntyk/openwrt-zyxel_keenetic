@@ -1,0 +1,227 @@
+From a99e6789ab024341e17987b2e43b3f4a8c956dff Mon Sep 17 00:00:00 2001
+From: Dirk Neukirchen <dirkneukirchen@web.de>
+Date: Thu, 12 Feb 2015 08:36:06 +0100
+Subject: [PATCH 01/15] tools: add zyimage
+
+Signed-off-by: Dirk Neukirchen <dirkneukirchen@web.de>
+---
+ tools/zyimage/Makefile      |  36 ++++++++++++
+ tools/zyimage/src/Makefile  |  15 +++++
+ tools/zyimage/src/zyimage.c | 140 ++++++++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 191 insertions(+)
+ create mode 100644 tools/zyimage/Makefile
+ create mode 100644 tools/zyimage/src/Makefile
+ create mode 100644 tools/zyimage/src/zyimage.c
+
+diff --git a/tools/zyimage/Makefile b/tools/zyimage/Makefile
+new file mode 100644
+index 0000000..33a8601
+--- /dev/null
++++ b/tools/zyimage/Makefile
+@@ -0,0 +1,36 @@
++#
++# Copyright (C) 2011-2014 OpenWrt.org
++#
++# This is free software, licensed under the GNU General Public License v2.
++# See /LICENSE for more information.
++#
++
++include $(TOPDIR)/rules.mk
++
++PKG_NAME:=zyimage
++PKG_VERSION:=1
++
++include $(INCLUDE_DIR)/host-build.mk
++
++define Host/Prepare
++	mkdir -p $(HOST_BUILD_DIR)
++	$(CP) ./src/* $(HOST_BUILD_DIR)/
++	find $(HOST_BUILD_DIR) -name .svn | $(XARGS) rm -rf
++endef
++
++define Host/Compile
++	$(MAKE) -C $(HOST_BUILD_DIR) LDFLAGS="$(HOST_STATIC_LINKING)"
++endef
++
++define Host/Configure
++endef
++
++define Host/Install
++	$(CP) $(HOST_BUILD_DIR)/zyimage $(STAGING_DIR_HOST)/bin/
++endef
++
++define Host/Clean
++	rm -f $(STAGING_DIR_HOST)/bin/zyimage
++endef
++
++$(eval $(call HostBuild))
+diff --git a/tools/zyimage/src/Makefile b/tools/zyimage/src/Makefile
+new file mode 100644
+index 0000000..a2ddde5
+--- /dev/null
++++ b/tools/zyimage/src/Makefile
+@@ -0,0 +1,15 @@
++CC = gcc
++CFLAGS =
++WFLAGS = -Wall -Werror
++zyimage-objs = zyimage.o
++
++all: zyimage
++
++%.o: %.c
++	$(CC) $(CFLAGS) $(WFLAGS) -c -o $@ $<
++
++zyimage: $(zyimage-objs)
++	$(CC) $(LDFLAGS) -o $@ $(zyimage-objs)
++
++clean:
++	rm -f zyimage *.o
+diff --git a/tools/zyimage/src/zyimage.c b/tools/zyimage/src/zyimage.c
+new file mode 100644
+index 0000000..2440820
+--- /dev/null
++++ b/tools/zyimage/src/zyimage.c
+@@ -0,0 +1,140 @@
++/*
++ * Copyright (C) 2014 Soul Trace <S-trace@list.ru>
++ *
++ * This program is free software; you can redistribute it and/or modify it
++ * under the terms of the GNU General Public License version 2 as published
++ * by the Free Software Foundation.
++ *
++ */
++
++#include <stdio.h>
++#include <stdlib.h>
++#include <sys/types.h>
++#include <string.h>
++#include <unistd.h>
++
++#define szbuf 32768
++
++u_int32_t crc_tab[256];
++
++u_int32_t chksum_crc32 (FILE *f)
++{
++  register unsigned long crc;
++  unsigned long i, j;
++  char *buffer = malloc(szbuf);
++  char *buf;
++
++  crc = 0xFFFFFFFF;
++  while (!feof(f))
++  {
++    j = fread(buffer, 1, szbuf, f);
++    buf = buffer;
++    for (i = 0; i < j; i++)
++      crc = ((crc >> 8) & 0x00FFFFFF) ^ crc_tab[(crc ^ *buf++) & 0xFF];
++  }
++  free(buffer);
++  return crc;
++}
++
++void chksum_crc32gentab ()
++{
++  unsigned long crc, poly;
++  int i, j;
++
++  poly = 0xEDB88320L;
++  for (i = 0; i < 256; i++)
++  {
++    crc = i;
++    for (j = 8; j > 0; j--)
++    {
++      if (crc & 1)
++        crc = (crc >> 1) ^ poly;
++      else
++        crc >>= 1;
++    }
++    crc_tab[i] = crc;
++  }
++}
++
++void usage(char *progname)
++{
++  printf("Usage: %s [ -v Version ] [ -d Device_ID ] <input file>\n", progname);
++  exit(1);
++}
++
++int main(int argc, char *argv[]) {
++  struct signature
++  {
++    const char magic[4];
++    unsigned int device_id;
++    char firmware_version[48];
++    unsigned int crc32;
++  }
++  sign =
++  {
++    { 'Z', 'N', 'B', 'G' },
++    1,
++    { "V.1.0.0(1.0.0)" },
++    0
++  };
++  FILE *f;
++
++  if (argc < 1)
++    usage(argv[0]);
++
++  static const char *optString = "v:d:h";
++  int opt = getopt( argc, argv, optString );
++  while( opt != -1 ) {
++    switch( opt ) {
++      case 'v':
++        if (optarg == NULL)
++          usage(argv[0]);
++        strncpy(sign.firmware_version, optarg, sizeof(sign.firmware_version)-1);
++       sign.firmware_version[sizeof(sign.firmware_version)-1]='\0'; // Make sure that string is terminated correctly
++        break;
++
++      case 'd':
++        sign.device_id = atoi(optarg);
++        if (sign.device_id == 0)
++          sign.device_id = (int)strtol(optarg, NULL, 16);
++        break;
++
++      case '?':
++      case 'h':
++        usage(argv[0]);
++        break;
++
++      default:
++        break;
++    }
++
++    opt = getopt( argc, argv, optString );
++  }
++
++  chksum_crc32gentab();
++  char *filename=argv[optind];
++  if (access(filename, W_OK) || access(filename, R_OK))
++  {
++    printf("Not open input file %s\n", filename);
++    exit(1);
++  }
++  f = fopen(argv[optind], "r+");
++  if (f != NULL)
++  {
++    fseek(f, sizeof(sign)*-1, SEEK_END);
++    struct signature oldsign;
++    fread(&oldsign, sizeof(oldsign), 1, f);
++    if (strncmp(oldsign.magic,"ZNBG", sizeof(oldsign.magic)) == 0 )
++    {
++      printf("Image is already signed as:\nDevice ID: 0x%08x\nFirmware version: %s\nImage CRC32: 0x%x\n", oldsign.device_id, oldsign.firmware_version, oldsign.crc32);
++      exit(0);
++    }
++
++    fseek(f, 0, SEEK_SET);
++    sign.crc32 = chksum_crc32(f);
++    fwrite(&sign, sizeof(sign), 1, f);
++    fclose(f);
++    printf("Image signed as:\nDevice ID: 0x%08x\nFirmware version: %s\nImage CRC32: 0x%x\n", sign.device_id, sign.firmware_version, sign.crc32);
++  }
++  return 0;
++}
+-- 
+2.3.0
+

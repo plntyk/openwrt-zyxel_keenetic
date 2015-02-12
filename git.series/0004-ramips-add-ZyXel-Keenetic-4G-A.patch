@@ -1,0 +1,120 @@
+From fca2093b2c16a7ce7832cff4ada1eccecdb51e8c Mon Sep 17 00:00:00 2001
+From: Dirk Neukirchen <dirkneukirchen@web.de>
+Date: Thu, 12 Feb 2015 10:06:01 +0100
+Subject: [PATCH 04/15] ramips: add ZyXel Keenetic 4G A
+
+Signed-off-by: Dirk Neukirchen <dirkneukirchen@web.de>
+---
+ target/linux/ramips/dts/KEENETIC_4G_A.dts | 100 ++++++++++++++++++++++++++++++
+ 1 file changed, 100 insertions(+)
+ create mode 100644 target/linux/ramips/dts/KEENETIC_4G_A.dts
+
+diff --git a/target/linux/ramips/dts/KEENETIC_4G_A.dts b/target/linux/ramips/dts/KEENETIC_4G_A.dts
+new file mode 100644
+index 0000000..63c59dc
+--- /dev/null
++++ b/target/linux/ramips/dts/KEENETIC_4G_A.dts
+@@ -0,0 +1,100 @@
++/dts-v1/;
++
++/include/ "rt3050.dtsi"
++
++/ {
++	compatible = "KEENETIC_4G_A", "ralink,rt3050-soc";
++	model = "ZyXEL Keenetic 4G rev.A";
++
++	pinctrl {
++		state_default: pinctrl0 {
++			gpio {
++				ralink,group = "i2c", "jtag", "uartf";
++				ralink,function = "gpio";
++			};
++		};
++	};
++
++	cfi@1f000000 {
++		compatible = "cfi-flash";
++		reg = <0x1f000000 0x800000>;
++
++		bank-width = <2>;
++		device-width = <2>;
++		#address-cells = <1>;
++		#size-cells = <1>;
++
++		partition@0 {
++			label = "u-boot";
++			reg = <0x0 0x30000>;
++			read-only;
++		};
++
++		partition@30000 {
++			label = "u-boot-env";
++			reg = <0x30000 0x10000>;
++			read-only;
++		};
++
++		factory: partition@40000 {
++			label = "factory";
++			reg = <0x40000 0x10000>;
++			read-only;
++		};
++
++		partition@50000 {
++			label = "firmware";
++			reg = <0x50000 0x3b0000>;
++		};
++	};
++
++	ethernet@10100000 {
++		mtd-mac-address = <&factory 0x4>;
++	};
++
++	esw@10110000 {
++		ralink,portmap = <0x2f>;
++	};
++
++	wmac@10180000 {
++		ralink,mtd-eeprom = <&factory 0>;
++	};
++
++	gpio-leds {
++		compatible = "gpio-leds";
++		power {
++			label = "zyxel:green:power";
++			gpios = <&gpio0 8 1>;
++		};
++		usb {
++			label = "zyxel:green:usb";
++			gpios = <&gpio0 9 1>;
++		};
++		internet {
++			label = "zyxel:green:internet";
++			gpios = <&gpio0 13 1>;
++		};
++	};
++
++
++	gpio-keys-polled {
++	compatible = "gpio-keys-polled";
++	#address-cells = <1>;
++	#size-cells = <0>;
++	poll-interval = <20>;
++		reset {
++			label = "reset";
++			gpios = <&gpio0 10 1>;
++			linux,code = <0x198>;
++		};
++		wps {
++			label = "wps";
++			gpios = <&gpio0 0 1>;
++			linux,code = <0x211>;
++		};
++	};
++
++	otg@101c0000 {
++		status = "okay";
++	};
++};
+-- 
+2.3.0
+
