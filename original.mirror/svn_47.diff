@@ -1,0 +1,2944 @@
+Index: OpenWRT_build
+===================================================================
+--- OpenWRT_build	(revision 0)
++++ OpenWRT_build	(working copy)
+@@ -0,0 +1 @@
++48
+Index: build
+===================================================================
+--- build	(revision 0)
++++ build	(working copy)
+@@ -0,0 +1,137 @@
++#!/bin/bash
++# threads_count="$(( `nproc` + 1 ))"
++threads_count=1
++publish_path="~/Dropbox/Public/zyxel/OpenWRT/test"
++build=`cat OpenWRT_build`
++
++FEEDS_LIST="luci ntfs-3g xl2tpd"
++TARGETS="NBG4114 KEENETIC_START KEENETIC_LITE_A KEENETIC_4G_A KEENETIC_4G_II KEENETIC KEENETIC_GIGA NBG4104 KEENETIC_LITE_II KEENETIC_OMNI"
++TARGETS_COUNT=$(echo "$TARGETS"|wc -w)
++rm failures.log 2> /dev/null
++trap Cleanup SIGINT
++
++Notify_user() {
++  echo -ne '\007'
++}
++
++Set_title() {
++  echo -ne $"\033]30;$1\007"
++}
++
++Fix_packages_list() {
++  mkdir -p $1/packages/kmod
++  cp $1/packages/base/kmod*.ipk $1/packages/kmod
++  cp $1/packages/base/kernel*.ipk $1/packages/kmod
++  cp $1/packages/base/Packages* $1/packages/kmod
++  awk  'BEGIN{RS="\n\n"} /^Package: kmod-.*/ { print ;print ""}' < "$1/packages/kmod/Packages" | gzip > "$1/packages/kmod/Packages.gz"
++  zcat "$1/packages/kmod/Packages.gz" > "$1/packages/kmod/Packages"
++}
++
++Build() {
++  target=$1
++  build=$2
++    echo "dest root /
++dest ram /tmp
++lists_dir ext /var/opkg-lists
++option overlay_root /overlay
++src/gz chaos_calmer_base http://downloads.openwrt.org/snapshots/trunk/ramips/packages/base
++src/gz chaos_calmer_luci http://downloads.openwrt.org/snapshots/trunk/ramips/packages/luci
++src/gz chaos_calmer_packages http://downloads.openwrt.org/snapshots/trunk/ramips/packages/packages" > files/etc/opkg.conf
++  make clean
++  echo "CONFIG_DEVEL=y" > .config
++  echo "CONFIG_CCACHE=y" >> .config
++  echo "CONFIG_BUSYBOX_CUSTOM=y" >> .config
++  echo "CONFIG_BUSYBOX_CONFIG_LOGIN=y" >> .config
++
++  if [ "$target" = "KEENETIC_LITE_A" -o "$target" == "KEENETIC_START" -o "$target" == "KEENETIC_4G_A" -o "$target" == "KEENETIC_4G_II" ] ; then
++    echo "$target selected - disabling IPv6!"
++    echo "# CONFIG_IPV6 is not set" >> .config
++    echo "# CONFIG_PACKAGE_dropbear is not set" >> .config
++    echo "# CONFIG_BUSYBOX_DEFAULT_FEATURE_IPV6 is not set" >> .config
++  fi
++  echo "CONFIG_TARGET_ramips=y" >> .config
++  if [ "$target" = "KEENETIC_LITE_II" -o "$target" == "KEENETIC_OMNI" ] ; then
++    echo "CONFIG_TARGET_ramips_mt7620n=y" >> .config
++    echo "CONFIG_TARGET_ramips_mt7620n_$target=y" >> .config
++    echo "src/gz kmod http://www.s-trace.url.ph//files/ZyXEL_Keenetic_Series/OpenWRT/${build}/packages_mt7620n" >> files/etc/opkg.conf
++  else
++    echo "CONFIG_TARGET_ramips_rt305x=y" >> .config
++    echo "CONFIG_TARGET_ramips_rt305x_$target=y" >> .config
++    echo "src/gz kmod http://www.s-trace.url.ph//files/ZyXEL_Keenetic_Series/OpenWRT/${build}/packages" >> files/etc/opkg.conf
++  fi
++  make defconfig
++#    exit 0
++  sed -i "s/# CONFIG_PACKAGE_kmod-\(.*\) is not set/CONFIG_PACKAGE_kmod-\1=m/g" .config
++  make defconfig
++  sed -i "s/# CONFIG_PACKAGE_kmod-\(.*\) is not set/CONFIG_PACKAGE_kmod-\1=m/g" .config
++  make defconfig
++  sed -i "s/# CONFIG_PACKAGE_kmod-\(.*\) is not set/CONFIG_PACKAGE_kmod-\1=m/g" .config
++#   grep -v CONFIG_PACKAGE_kmod-usb-phy-nop .config > .config.new
++#   echo "# CONFIG_PACKAGE_kmod-usb-phy-nop is not set" >> .config.new
++#   mv .config.new .config
++  ( set -o pipefail && make V=s -j $threads_count | tee ${build}_$target-build.log )
++  return_code=$?
++  if [[ $return_code -gt 0 ]]; then
++    echo "FAILED TO BUILD TARGET $target (code $return_code), see ${build}_$target-build.log for details" >> failures.log
++    echo "Building OpenWRT for $target - FAILED in $SECONDS seconds!" >> ${build}_$target-build.log
++    Notify_user
++  else
++    echo "Building OpenWRT for $target - DONE in $SECONDS seconds!" >> ${build}_$target-build.log
++  fi
++  mv ${build}_$target-build.log bin/ramips/
++  gzip bin/ramips/${build}_$target-build.log
++  cp .config bin/ramips/${build}_$target-config
++  cp build_dir/target-mipsel_24kec+dsp_uClibc-0.9.33.2/linux-ramips_rt305x/linux-3.*/.config bin/ramips/${build}_$target-kconfig
++  cp build_dir/target-mipsel_24kec+dsp_uClibc-0.9.33.2/busybox-1.*/.config bin/ramips/${build}_$target-bbconfig
++}
++
++Cleanup(){
++  echo $'\033]30;\007'
++  exit
++}
++
++case $1 in
++all)
++  build=`cat OpenWRT_build`
++  svn diff > "before_upgrade_at_`date`_$build.patch"
++  
++  # Updating sources
++  svn up
++  ./scripts/feeds update -a
++  ./scripts/feeds install $FEEDS_LIST
++  
++  # Cleanup before build process
++  rm tmp/.targetinfo tmp/info/.targetinfo-* tmp/info/.files-targetinfo* tmp/.config* .config
++  rm -rf out 2>/dev/null
++  mkdir out
++
++  # Main loop
++  for target in $TARGETS; do
++    CURRENT_TARGET=$(echo $TARGETS|tr ' ' '\n' | grep -n $target$ | gawk '{print $1}' FS=":")
++    if [[ -f failures.log ]]; then
++      failed_targets=`wc -l failures.log|cut -d ' ' -f 1`
++      Set_title  "Building OpenWRT for $target [$CURRENT_TARGET/$TARGETS_COUNT] (failed $failed_targets)"
++    else
++      Set_title  "Building OpenWRT for $target [$CURRENT_TARGET/$TARGETS_COUNT]"
++    fi
++      Build $target $build
++      mkdir out/$target
++      mv bin/ramips/* out/$target/
++      Fix_packages_list out/$target/
++  done
++  
++  # Finalization
++  svn diff >> "out/svn_$build.diff"
++  let build=build+1
++  echo $build > OpenWRT_build
++  Set_title  "Building OpenWRT - DONE in $SECONDS seconds!"
++  Notify_user
++  ;;
++*)
++  Build $1 $build
++  ;;
++esac
++
++cat failures.log 2> /dev/null
++rm failures.log 2> /dev/null
++Cleanup
+
+Property changes on: build
+___________________________________________________________________
+Added: svn:executable
+## -0,0 +1 ##
++*
+\ No newline at end of property
+Index: files/bin/login.sh
+===================================================================
+--- files/bin/login.sh	(revision 0)
++++ files/bin/login.sh	(working copy)
+@@ -0,0 +1,19 @@
++#!/bin/sh
++# Copyright (C) 2006-2011 OpenWrt.org
++
++if ( ! grep -qs '^root:[!x]\?:' /etc/shadow || \
++     ! grep -qs '^root:[!x]\?:' /etc/passwd ) && \
++   [ -z "$FAILSAFE" ]
++then
++        login
++        exit 0
++else
++cat << EOF
++ === IMPORTANT ============================
++  Use 'passwd' to set your login password
++  this will disable telnet and enable SSH
++ ------------------------------------------
++EOF
++fi
++
++exec /bin/ash --login
+
+Property changes on: files/bin/login.sh
+___________________________________________________________________
+Added: svn:executable
+## -0,0 +1 ##
++*
+\ No newline at end of property
+Index: files/etc/config/dhcp
+===================================================================
+--- files/etc/config/dhcp	(revision 0)
++++ files/etc/config/dhcp	(working copy)
+@@ -0,0 +1,30 @@
++config dnsmasq
++	option domainneeded	1
++	option boguspriv	1
++	option filterwin2k	0  # enable for dial on demand
++	option localise_queries	1
++	option rebind_protection 0  # enable if upstream must not serve RFC1918 addresses
++	#list rebind_domain example.lan  # whitelist RFC1918 responses for domains
++	option local	'/lan/'
++	option domain	'lan'
++	option expandhosts	1
++	option nonegcache	0
++	option authoritative	1
++	option readethers	1
++	option leasefile	'/tmp/dhcp.leases'
++	option resolvfile	'/tmp/resolv.conf.auto'
++	#list server		'/mycompany.local/1.2.3.4'
++	#option nonwildcard	1
++	#list interface		br-lan
++	#list notinterface	lo
++	#list bogusnxdomain     '64.94.110.11'
++
++config dhcp lan
++	option interface	lan
++	option start 	100
++	option limit	150
++	option leasetime	12h
++
++config dhcp wan
++	option interface	wan
++	option ignore	1
+Index: files/etc/config/system
+===================================================================
+--- files/etc/config/system	(revision 0)
++++ files/etc/config/system	(working copy)
+@@ -0,0 +1,11 @@
++config system
++        option hostname OpenWrt
++        option zonename 'Europe/Moscow'
++        option timezone 'MSK-4'
++
++config timeserver ntp
++        list server     0.openwrt.pool.ntp.org
++        list server     1.openwrt.pool.ntp.org
++        list server     2.openwrt.pool.ntp.org
++        list server     3.openwrt.pool.ntp.org
++        option enable_server 0
+Index: files/etc/config/wireless
+===================================================================
+--- files/etc/config/wireless	(revision 0)
++++ files/etc/config/wireless	(working copy)
+@@ -0,0 +1,19 @@
++config wifi-device 'radio0'
++        option type 'mac80211'
++        option channel '11'
++        option hwmode '11ng'
++        option path '10180000.wmac'
++        list ht_capab 'GF'
++        list ht_capab 'SHORT-GI-20'
++        list ht_capab 'SHORT-GI-40'
++        list ht_capab 'RX-STBC1'
++        option txpower '20'
++        option country 'RU'
++        option htmode 'HT40-'
++
++config wifi-iface
++        option device 'radio0'
++        option mode 'ap'
++        option ssid 'OpenWRT'
++        option encryption 'none'
++        option network 'lan'
+Index: files/etc/hotplug.d/block/20-cloud_overlay
+===================================================================
+--- files/etc/hotplug.d/block/20-cloud_overlay	(revision 0)
++++ files/etc/hotplug.d/block/20-cloud_overlay	(working copy)
+@@ -0,0 +1,12 @@
++#!/bin/sh
++echo started cloud_overlay: $0 $*
++ehv
++eval `strings /dev/mtd1|grep 'zyxelsn\|sernumb\|servicetag'`
++# Only one of $zyxelsn and $sernumb should be presented, so other will be NULL and not affect output
++echo -e "login:\n$zyxelsn$sernumb\npassword: \n$servicetag"
++grep -q '/overlay/' "/etc/davfs2/secrets" || echo "/overlay/ $zyxelsn$sernumb \"$servicetag\"" >> "/etc/davfs2/secrets"
++chmod 0600 "/etc/davfs2/secrets"
++echo nameserver 8.8.8.8 >> /etc/resolv.conf
++mount -t davfs https://webdav.yandex.ru "/overlay/"
++mount.posixovl -F /overlay/
++echo block finished!
+\ No newline at end of file
+
+Property changes on: files/etc/hotplug.d/block/20-cloud_overlay
+___________________________________________________________________
+Added: svn:executable
+## -0,0 +1 ##
++*
+\ No newline at end of property
+Index: files/etc/ssl/certs/244b5494.0
+===================================================================
+--- files/etc/ssl/certs/244b5494.0	(revision 0)
++++ files/etc/ssl/certs/244b5494.0	(working copy)
+@@ -0,0 +1 @@
++link DigiCert_High_Assurance_EV_Root_CA.pem
+\ No newline at end of file
+
+Property changes on: files/etc/ssl/certs/244b5494.0
+___________________________________________________________________
+Added: svn:special
+## -0,0 +1 ##
++*
+\ No newline at end of property
+Index: files/etc/ssl/certs/442adcac.0
+===================================================================
+--- files/etc/ssl/certs/442adcac.0	(revision 0)
++++ files/etc/ssl/certs/442adcac.0	(working copy)
+@@ -0,0 +1 @@
++link Certum_Root_CA.pem
+\ No newline at end of file
+
+Property changes on: files/etc/ssl/certs/442adcac.0
+___________________________________________________________________
+Added: svn:special
+## -0,0 +1 ##
++*
+\ No newline at end of property
+Index: files/etc/ssl/certs/6e8bf996.0
+===================================================================
+--- files/etc/ssl/certs/6e8bf996.0	(revision 0)
++++ files/etc/ssl/certs/6e8bf996.0	(working copy)
+@@ -0,0 +1 @@
++link Certum_Root_CA.pem
+\ No newline at end of file
+
+Property changes on: files/etc/ssl/certs/6e8bf996.0
+___________________________________________________________________
+Added: svn:special
+## -0,0 +1 ##
++*
+\ No newline at end of property
+Index: files/etc/ssl/certs/81b9768f.0
+===================================================================
+--- files/etc/ssl/certs/81b9768f.0	(revision 0)
++++ files/etc/ssl/certs/81b9768f.0	(working copy)
+@@ -0,0 +1 @@
++link DigiCert_High_Assurance_EV_Root_CA.pem
+\ No newline at end of file
+
+Property changes on: files/etc/ssl/certs/81b9768f.0
+___________________________________________________________________
+Added: svn:special
+## -0,0 +1 ##
++*
+\ No newline at end of property
+Index: files/etc/ssl/certs/Certum_Root_CA.pem
+===================================================================
+--- files/etc/ssl/certs/Certum_Root_CA.pem	(revision 0)
++++ files/etc/ssl/certs/Certum_Root_CA.pem	(working copy)
+@@ -0,0 +1,19 @@
++-----BEGIN CERTIFICATE-----
++MIIDDDCCAfSgAwIBAgIDAQAgMA0GCSqGSIb3DQEBBQUAMD4xCzAJBgNVBAYTAlBM
++MRswGQYDVQQKExJVbml6ZXRvIFNwLiB6IG8uby4xEjAQBgNVBAMTCUNlcnR1bSBD
++QTAeFw0wMjA2MTExMDQ2MzlaFw0yNzA2MTExMDQ2MzlaMD4xCzAJBgNVBAYTAlBM
++MRswGQYDVQQKExJVbml6ZXRvIFNwLiB6IG8uby4xEjAQBgNVBAMTCUNlcnR1bSBD
++QTCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAM6xwS7TT3zNJc4YPk/E
++jG+AanPIW1H4m9LcuwBcsaD8dQPugfCI7iNS6eYVM42sLQnFdvkrOYCJ5JdLkKWo
++ePhzQ3ukYbDYWMzhbGZ+nPMJXlVjhNWo7/OxLjBos8Q82KxujZlakE403Daaj4GI
++ULdtlkIJ89eVgw1BS7Bqa/j8D35in2fE7SZfECYPCE/wpFcozo+47UX2bu4lXapu
++Ob7kky/ZR6By6/qmW6/KUz/iDsaWVhFu9+lmqSbYf5VT7QqFiLpPKaVCjF62/IUg
++AKpoC6EahQGcxEZjgoi2IrHu/qpGWX7PNSzVttpd90gzFFS269lvzs2I1qsb2pY7
++HVkCAwEAAaMTMBEwDwYDVR0TAQH/BAUwAwEB/zANBgkqhkiG9w0BAQUFAAOCAQEA
++uI3O7+cUus/usESSbLQ5PqKEbq24IXfS1HeCh+YgQYHu4vgRt2PRFze+GXYkHAQa
++TOs9qmdvLdTN/mUxcMUbpgIKumB7bVjCmkn+YzILa+M6wKyrO7Do0wlRjBCDxjTg
++xSvgGrZgFCdsMneMvLJymM/NzD+5yCRCFNZX/OYmQ6kd5YCQzgNUKD73P9P4Te1q
++CjqTE5s7FCMTY5w/0YcneeVMUeMBrYVdGjux1XMQpNPyvG5k9VpWkKjHDkx0Dy5x
++O/fIR/RpbxXyEV6DHpx8Uq79AtoSqFlnGNu8cN2bsWntgM6JQEhqDjXKKWYVIZQs
++6GAqm4VKQPNriiTsBhYscw==
++-----END CERTIFICATE-----
+Index: files/etc/ssl/certs/DigiCert_High_Assurance_EV_Root_CA.pem
+===================================================================
+--- files/etc/ssl/certs/DigiCert_High_Assurance_EV_Root_CA.pem	(revision 0)
++++ files/etc/ssl/certs/DigiCert_High_Assurance_EV_Root_CA.pem	(working copy)
+@@ -0,0 +1 @@
++link /usr/share/ca-certificates/mozilla/DigiCert_High_Assurance_EV_Root_CA.crt
+\ No newline at end of file
+
+Property changes on: files/etc/ssl/certs/DigiCert_High_Assurance_EV_Root_CA.pem
+___________________________________________________________________
+Added: svn:special
+## -0,0 +1 ##
++*
+\ No newline at end of property
+Index: include/image.mk
+===================================================================
+--- include/image.mk	(revision 42231)
++++ include/image.mk	(working copy)
+@@ -74,7 +74,7 @@
+ 
+ # pad to 4k, 8k, 16k, 64k, 128k, 256k and add jffs2 end-of-filesystem mark
+ define prepare_generic_squashfs
+-	$(STAGING_DIR_HOST)/bin/padjffs2 $(1) 4 8 16 64 128 256
++	$(STAGING_DIR_HOST)/bin/padjffs2 $(1) 4 8 16 64
+ endef
+ 
+ define Image/BuildKernel/Initramfs
+Index: package/base-files/files/etc/group
+===================================================================
+--- package/base-files/files/etc/group	(revision 42231)
++++ package/base-files/files/etc/group	(working copy)
+@@ -8,3 +8,4 @@
+ users:x:100:
+ network:x:101:
+ nogroup:x:65534:
++nobody:x:99:
+Index: package/base-files/files/lib/functions/uci-defaults.sh
+===================================================================
+--- package/base-files/files/lib/functions/uci-defaults.sh	(revision 42231)
++++ package/base-files/files/lib/functions/uci-defaults.sh	(working copy)
+@@ -138,6 +138,22 @@
+ 	UCIDEF_LEDS_CHANGED=1
+ }
+ 
++ucidef_set_led_heartbeat() {
++        local cfg="led_$1"
++        local name=$2
++        local sysfs=$3
++
++        uci -q get system.$cfg && return 0
++
++        uci batch <<EOF
++set system.$cfg='led'
++set system.$cfg.name='$name'
++set system.$cfg.sysfs='$sysfs'
++set system.$cfg.trigger='heartbeat'
++EOF
++        UCIDEF_LEDS_CHANGED=1
++}
++
+ ucidef_commit_leds()
+ {
+ 	[ "$UCIDEF_LEDS_CHANGED" == "1" ] && uci commit system
+Index: package/kernel/linux/modules/netdevices.mk
+===================================================================
+--- package/kernel/linux/modules/netdevices.mk	(revision 42231)
++++ package/kernel/linux/modules/netdevices.mk	(working copy)
+@@ -227,6 +227,40 @@
+ $(eval $(call KernelPackage,switch-rtl8366s))
+ 
+ 
++define KernelPackage/switch-ar8216
++  SUBMENU:=$(NETWORK_DEVICES_MENU)
++  TITLE:= Atheros AR8216 switch support
++  DEPENDS:=+kmod-swconfig
++  KCONFIG:=CONFIG_AR8216_PHY \
++		CONFIG_AR8216_PHY_LEDS=y
++  FILES:=$(LINUX_DIR)/drivers/net/phy/ar8216.ko
++  AUTOLOAD:=$(call AutoProbe,ar8216)
++endef
++
++define KernelPackage/switch-ar8216/description
++ Atheros AR8216/AR8316 switch support
++endef
++
++$(eval $(call KernelPackage,switch-ar8216))
++
++
++define KernelPackage/mdio-gpio
++  SUBMENU:=$(NETWORK_DEVICES_MENU)
++  TITLE:= Supports GPIO lib-based MDIO busses
++  DEPENDS:=@GPIO_SUPPORT
++  KCONFIG:=CONFIG_MDIO_BITBANG \
++		CONFIG_MDIO_GPIO
++  FILES:=$(LINUX_DIR)/drivers/net/phy/mdio-gpio.ko $(LINUX_DIR)/drivers/net/phy/mdio-bitbang.ko
++  AUTOLOAD:=$(call AutoProbe,mdio-gpio)
++endef
++
++define KernelPackage/mdio-gpio/description
++ Supports GPIO lib-based MDIO busses
++endef
++
++$(eval $(call KernelPackage,mdio-gpio))
++
++
+ define KernelPackage/natsemi
+   SUBMENU:=$(NETWORK_DEVICES_MENU)
+   TITLE:=National Semiconductor DP8381x series
+Index: package/utils/davfs2/Makefile
+===================================================================
+--- package/utils/davfs2/Makefile	(revision 0)
++++ package/utils/davfs2/Makefile	(working copy)
+@@ -0,0 +1,65 @@
++#
++# Copyright (C) 2011-2012 Entware
++# Copyright (C) 2014 Erinome.net
++#
++# This is free software, licensed under the GNU General Public License v2.
++# See /LICENSE for more information.
++#
++
++include $(TOPDIR)/rules.mk
++
++PKG_NAME:=davfs2
++PKG_VERSION:=1.5.0
++PKG_RELEASE:=1
++
++PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
++PKG_SOURCE_URL:=http://download.savannah.gnu.org/releases/davfs2/
++PKG_MD5SUM:=be573450f32c8dd058577ac9129cde9c
++
++PKG_FIXUP:=autoreconf
++PKG_INSTALL:=1
++
++include $(INCLUDE_DIR)/package.mk
++include $(INCLUDE_DIR)/nls.mk
++
++define Package/davfs2
++	SECTION:=net
++	CATEGORY:=Network
++	SUBMENU:=Filesystem
++	DEPENDS:=+libneon +libfuse
++	TITLE:=Mounts a WebDAV resource
++	URL:=http://savannah.nongnu.org/projects/davfs2
++	MAINTAINER:=Entware team, wl500g-repo.googlecode.com
++endef
++
++define Package/davfs2/description
++ Mount a WebDAV resource as a regular file system. davfs2 will work with
++ most WebDAV servers needing little or no configuration.
++endef
++
++CONFIGURE_ARGS += \
++	--with-libintl-prefix=$(INTL_PREFIX) \
++	--with-libiconv-prefix=$(ICONV_PREFIX) \
++	--with-neon=$(STAGING_DIR)/usr \
++	dav_user=nobody \
++	dav_group=nobody \
++	ssbindir=/sbin \
++	dav_localstatedir=/var/run \
++	dav_syscachedir=/var/cache \
++
++TARGET_CPPFLAGS += -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE
++
++define Package/davfs2/conffiles
++/etc/davfs2/davfs2.conf
++/etc/davfs2/secrets
++endef
++
++define Package/davfs2/install
++	$(INSTALL_DIR) $(1)/sbin
++	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/{,u}mount.davfs $(1)/sbin
++	$(INSTALL_DIR) $(1)/etc/davfs2/certs/private
++	$(INSTALL_CONF) $(PKG_INSTALL_DIR)/etc/davfs2/{davfs2.conf,secrets} $(1)/etc/davfs2/
++	$(INSTALL_DIR) $(1)/tmp/{run,cache}
++endef
++
++$(eval $(call BuildPackage,davfs2))
+Index: package/utils/davfs2/patches/030-syslog-uclibc.patch
+===================================================================
+--- package/utils/davfs2/patches/030-syslog-uclibc.patch	(revision 0)
++++ package/utils/davfs2/patches/030-syslog-uclibc.patch	(working copy)
+@@ -0,0 +1,75 @@
++--- a/src/webdav.c
+++++ b/src/webdav.c
++@@ -38,9 +38,7 @@
++ #include <limits.h>
++ #endif
++ #include <stdio.h>
++-#ifdef HAVE_STDLIB_H
++ #include <stdlib.h>
++-#endif
++ #include <string.h>
++ #ifdef HAVE_SYSLOG_H
++ #include <syslog.h>
++@@ -149,7 +147,11 @@ static const ne_propname quota_names[] =
++     {NULL, NULL}
++ };
++ 
++-static size_t log_bufsize = 512;
+++typedef struct {
+++  char *buffer;
+++  size_t size;
+++} log_buffer_t;
+++static const size_t log_bufsize = 1024;
++ 
++ static char *none_match_header = "If-None-Match: *\r\n";
++ 
++@@ -352,7 +354,8 @@ dav_init_webdav(const dav_args *args)
++         error(EXIT_FAILURE, errno, _("socket library initialization failed"));
++ 
++     if (args->neon_debug & ~NE_DBG_HTTPPLAIN) {
++-        char *buf = malloc(log_bufsize);
+++        log_buffer_t *buf = malloc(sizeof(log_buffer_t));
+++        buf->buffer = malloc(log_bufsize);
++         cookie_io_functions_t *log_func = malloc(sizeof(cookie_io_functions_t));
++         if (!log_func) abort();
++         log_func->read = NULL;
++@@ -1537,21 +1540,27 @@ log_writer(void *cookie, const char *buf
++ 
++     size_t written = 0;
++     const char *bpos = buffer;
+++    log_buffer_t *log_buf = (log_buffer_t *)cookie;
+++    char *spos = log_buf->buffer;
+++    char *cpos = &spos[log_buf->size];
++     while (written < size) {
++-        size_t n = 2;
++-        char *cpos = (char *) cookie;
++-        while (n < log_bufsize && written < size) {
++-            if (*bpos == '%') {
++-                *cpos++ = '%';
++-                n++;
++-            }
++-            *cpos++ = *bpos++;
++-            n++;
++-            written++;
+++        /* if there is no buffering we have to take care of printing
+++           as syslog treats each call as a new line. Take care not to
+++           overflow buffer if text is too long */
+++        if (*bpos == '\n' || cpos - spos >= log_bufsize) {
+++            *cpos = '\0';
+++            syslog(LOG_MAKEPRI(LOG_DAEMON, LOG_DEBUG), "%s", log_buf->buffer);
+++            /* restart filling our output buffer */
+++            cpos = log_buf->buffer;
+++        } else {
+++            *cpos++ = *bpos;
++         }
++-        *cpos = '\0';
++-        syslog(LOG_MAKEPRI(LOG_DAEMON, LOG_DEBUG), "%s", (char *) cookie);
+++        bpos++;
+++        written++;
++     }
+++
+++    /* subtract ending address from starting address to current get buffer size */
+++    log_buf->size = cpos - spos;
++     return written;
++ }
++ 
+Index: package/utils/davfs2/patches/040-cache.patch
+===================================================================
+--- package/utils/davfs2/patches/040-cache.patch	(revision 0)
++++ package/utils/davfs2/patches/040-cache.patch	(working copy)
+@@ -0,0 +1,116 @@
++--- a/src/cache.c
+++++ b/src/cache.c
++@@ -55,7 +55,6 @@
++ #ifdef HAVE_SYS_TYPES_H
++ #include <sys/types.h>
++ #endif
++-#include <sys/xattr.h>
++ 
++ #include <ne_alloc.h>
++ #include <ne_string.h>
++@@ -124,6 +123,105 @@ static const char* const type[] = {
++     [END] = NULL
++ };
++ 
+++#define PWD_BUFFER_SIZE 1024
+++
+++struct passwd *__getpwent(int pwd_fd)
+++{
+++  static char line_buff[PWD_BUFFER_SIZE];
+++  static struct passwd passwd;
+++  char *field_begin;
+++  char *endptr;
+++  char *gid_ptr=NULL;
+++  char *uid_ptr=NULL;
+++  int line_len;
+++  int i;
+++
+++  /* We use the restart label to handle malformatted lines */
+++  restart:
+++  /* Read the passwd line into the static buffer using a minimal of
+++     syscalls. */
+++  if ((line_len = read(pwd_fd, line_buff, PWD_BUFFER_SIZE)) <= 0)
+++    return NULL;
+++  field_begin = strchr(line_buff, '\n');
+++  if (field_begin != NULL)
+++    lseek(pwd_fd, (long) (1 + field_begin - (line_buff + line_len)),
+++        SEEK_CUR);
+++  else {            /* The line is too long - skip it. :-\ */
+++
+++    do {
+++      if ((line_len = read(pwd_fd, line_buff, PWD_BUFFER_SIZE)) <= 0)
+++        return NULL;
+++    } while (!(field_begin = strchr(line_buff, '\n')));
+++    lseek(pwd_fd, (long) (field_begin - line_buff) - line_len + 1,
+++        SEEK_CUR);
+++    goto restart;
+++  }
+++  if (*line_buff == '#' || *line_buff == ' ' || *line_buff == '\n' ||
+++    *line_buff == '\t')
+++    goto restart;
+++  *field_begin = '\0';
+++
+++  /* We've read the line; now parse it. */
+++  field_begin = line_buff;
+++  for (i = 0; i < 7; i++) {
+++    switch (i) {
+++    case 0:
+++      passwd.pw_name = field_begin;
+++      break;
+++    case 1:
+++      passwd.pw_passwd = field_begin;
+++      break;
+++    case 2:
+++      uid_ptr = field_begin;
+++      break;
+++    case 3:
+++      gid_ptr = field_begin;
+++      break;
+++    case 4:
+++      passwd.pw_gecos = field_begin;
+++      break;
+++    case 5:
+++      passwd.pw_dir = field_begin;
+++      break;
+++    case 6:
+++      passwd.pw_shell = field_begin;
+++      break;
+++    }
+++    if (i < 6) {
+++      field_begin = strchr(field_begin, ':');
+++      if (field_begin == NULL)
+++        goto restart;
+++      *field_begin++ = '\0';
+++    }
+++  }
+++  passwd.pw_gid = (gid_t) strtoul(gid_ptr, &endptr, 10);
+++  if (*endptr != '\0')
+++    goto restart;
+++
+++  passwd.pw_uid = (uid_t) strtoul(uid_ptr, &endptr, 10);
+++  if (*endptr != '\0')
+++    goto restart;
+++
+++  return &passwd;
+++}
+++
+++struct passwd *getpwuid(uid_t uid)
+++{
+++  int passwd_fd;
+++  struct passwd *passwd;
+++
+++  if ((passwd_fd = open("/etc/passwd", O_RDONLY)) < 0)
+++    return NULL;
+++
+++  while ((passwd = __getpwent(passwd_fd)) != NULL)
+++    if (passwd->pw_uid == uid) {
+++      close(passwd_fd);
+++      return passwd;
+++    }
+++
+++  close(passwd_fd);
+++  return NULL;
+++}
++ 
++ /* Private global variables */
++ /*==========================*/
+Index: package/utils/davfs2/patches/070-change-type-to-off64.patch
+===================================================================
+--- package/utils/davfs2/patches/070-change-type-to-off64.patch	(revision 0)
++++ package/utils/davfs2/patches/070-change-type-to-off64.patch	(working copy)
+@@ -0,0 +1,11 @@
++--- a/src/webdav.h
+++++ b/src/webdav.h
++@@ -244,7 +244,7 @@ dav_put(const char *path, const char *ca
++    If quota information is not
++    available, an error is returned and available and used are not changed. */ 
++ int
++-dav_quota(const char *path, off_t *total, off_t *used);
+++dav_quota(const char *path, off64_t *total, off64_t *used);
++ 
++ 
++ /* Sets or resets the execute property of file path.
+Index: package/utils/davfs2/patches/090-rpmatch-fix.patch
+===================================================================
+--- package/utils/davfs2/patches/090-rpmatch-fix.patch	(revision 0)
++++ package/utils/davfs2/patches/090-rpmatch-fix.patch	(working copy)
+@@ -0,0 +1,22 @@
++--- a/src/webdav.c
+++++ b/src/webdav.c
++@@ -2059,15 +2059,12 @@ ssl_verify(void *userdata, int failures,
++                      "verify the fingerprint! The server might be faked\n"
++                      "or there might be a man-in-the-middle-attack.\n"));
++             printf(_("Accept certificate for this session? [y,N] "));
++-            char *s = NULL;
++-            size_t n = 0;
++-            ssize_t len = 0;
++-            len = getline(&s, &n, stdin);
++-            if (len < 0)
+++            char yesno[3];
+++            fflush(stdout);
+++            if (fgets(yesno, sizeof(yesno), stdin) == NULL)
++                 abort();
++-            if (rpmatch(s) > 0)
+++            if (yesno[0] == 'y' || yesno[0] == 'Y')
++                 ret = 0;
++-            free(s);
++     } 
++ 
++     if (failures & NE_SSL_NOTYETVALID)
+Index: package/utils/posixovl/Makefile
+===================================================================
+--- package/utils/posixovl/Makefile	(revision 0)
++++ package/utils/posixovl/Makefile	(working copy)
+@@ -0,0 +1,68 @@
++#
++# Copyright (C) 2011-2012 Entware
++# Copyright (C) 2014 Erinome.net
++#
++# This is free software, licensed under the GNU General Public License v2.
++# See /LICENSE for more information.
++#
++
++include $(TOPDIR)/rules.mk
++
++PKG_NAME:=posixovl
++PKG_VERSION:=1.2
++PKG_MD5SUM:=02630aba4478f661ec6a247338a3d54e
++PKG_RELEASE:=1
++
++PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
++PKG_SOURCE_URL:=@SF/posixovl
++PKG_BUILD_DIR:=$(BUILD_DIR)/posixovl
++# PKG_BUILD_DEPENDS:=util-linux
++PKG_FIXUP:=autoreconf
++PKG_INSTALL:=1
++
++include $(INCLUDE_DIR)/package.mk
++
++define Package/posixovl/Default
++  URL:=http://posixovl.sourceforge.net/
++  SUBMENU:=Filesystem
++endef
++
++define Package/posixovl
++$(call Package/posixovl/Default)
++  SECTION:=utils
++  CATEGORY:=Filesystem
++  TITLE:=POSIX Overlay Filesystem (posixovl)
++  DEPENDS:=
++endef
++
++PKG_INSTALL:=1
++
++include $(INCLUDE_DIR)/package.mk
++include $(INCLUDE_DIR)/nls.mk
++
++define Package/posixovl
++	SECTION:=utils
++	CATEGORY:=Utilities
++	SUBMENU:=Filesystem
++	DEPENDS:=+libfuse +libattr
++	TITLE:=POSIX Overlay Filesystem
++	URL:=http://sourceforge.net/projects/posixovl/
++	MAINTAINER:=Soul Trace <S-trace@list.ru>
++endef
++
++define Package/posixovl/description
++ A FUSE filesystem that provides POSIX functionality - UNIX-style permissions, 
++ ownership, special files - for filesystems that do not have such, e.g. vfat. 
++ It is a modern equivalent of the UMSDOS fs.
++endef
++
++CONFIGURE_ARGS += --prefix=/usr
++
++TARGET_CPPFLAGS += -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE
++
++define Package/posixovl/install
++	$(INSTALL_DIR) $(1)/sbin
++	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/mount.posixovl $(1)/sbin
++endef
++
++$(eval $(call BuildPackage,posixovl))
+Index: package/utils/posixovl/patches/fix_types_conflict_in_strncpy.patch
+===================================================================
+--- package/utils/posixovl/patches/fix_types_conflict_in_strncpy.patch	(revision 0)
++++ package/utils/posixovl/patches/fix_types_conflict_in_strncpy.patch	(working copy)
+@@ -0,0 +1,18 @@
++diff -ur posixovl/posixovl.c posixovl_fixed/posixovl.c
++--- posixovl/posixovl.c	2014-04-30 21:25:07.000000000 +0400
+++++ posixovl_fixed/posixovl.c	2014-04-30 21:27:57.000000000 +0400
++@@ -162,12 +162,13 @@
++ 	return in + 1;
++ }
++ 
+++/*
++ static char *strlcpy(char *dest, const char *src, size_t n)
++ {
++ 	strncpy(dest, src, n);
++ 	dest[n-1] = '\0';
++ 	return dest;
++-}
+++}*/
++ 
++ /*
++  * __hl_dtoi - build the HL.I-node path from the HL.D-node path
+Index: package/utils/posixovl/patches/remove_xattr_support.patch
+===================================================================
+--- package/utils/posixovl/patches/remove_xattr_support.patch	(revision 0)
++++ package/utils/posixovl/patches/remove_xattr_support.patch	(working copy)
+@@ -0,0 +1,63 @@
++diff -ur posixovl/configure.ac posixovl_fixed/configure.ac
++--- posixovl/configure.ac	2011-04-17 05:31:09.000000000 +0400
+++++ posixovl_fixed/configure.ac	2014-04-30 21:26:46.744306162 +0400
++@@ -14,7 +14,7 @@
++ AC_SUBST([regular_CPPFLAGS])
++ AC_SUBST([regular_CFLAGS])
++ 
++-AC_CHECK_HEADER(attr/xattr.h, [], AC_MSG_ERROR([libattr-devel not installed]))
+++# AC_CHECK_HEADER(attr/xattr.h, [], AC_MSG_ERROR([libattr-devel not installed]))
++ 
++ # FUSE >= 2.7.0 got subtype name support.
++ # 2.6.5 does not, but has a similar thing.
++diff -ur posixovl/posixovl.c posixovl_fixed/posixovl.c
++--- posixovl/posixovl.c	2011-04-17 05:28:27.000000000 +0400
+++++ posixovl_fixed/posixovl.c	2014-04-30 21:25:07.000000000 +0400
++@@ -32,7 +32,6 @@
++ #include <string.h>
++ #include <unistd.h>
++ #include <asm/unistd.h>
++-#include <attr/xattr.h>
++ #include "config.h"
++ #ifndef S_IRUGO
++ #	define S_IRUGO (S_IRUSR | S_IRGRP | S_IROTH)
++@@ -1082,7 +1081,8 @@
++ static int posixovl_getxattr(const char *path, const char *name,
++     char *value, size_t size)
++ {
++-	XRET(lgetxattr(at(path), name, value, size));
+++// 	XRET(lgetxattr(at(path), name, value, size));
+++	return -ENOSYS;
++ }
++ 
++ static int posixovl1_fgetattr(const char *path, struct stat *sb,
++@@ -1350,7 +1350,8 @@
++ 
++ static int posixovl_listxattr(const char *path, char *list, size_t size)
++ {
++-	XRET(llistxattr(at(path), list, size));
+++// 	XRET(llistxattr(at(path), list, size));
+++	return -ENOSYS;
++ }
++ 
++ static int posixovl_mkdir(const char *path, mode_t mode)
++@@ -1575,7 +1576,8 @@
++ 
++ static int posixovl_removexattr(const char *path, const char *name)
++ {
++-	XRET(lremovexattr(path, name));
+++// 	XRET(lremovexattr(path, name));
+++	return -ENOSYS;
++ }
++ 
++ static int posixovl_rename(const char *oldpath, const char *newpath)
++@@ -1659,7 +1661,8 @@
++ static int posixovl_setxattr(const char *path, const char *name,
++     const char *value, size_t size, int flags)
++ {
++-	XRET(lsetxattr(at(path), name, value, size, flags));
+++// 	XRET(lsetxattr(at(path), name, value, size, flags));
+++	return -ENOSYS;
++ }
++ 
++ static int posixovl_statfs(const char *path, struct statvfs *sb)
+Index: target/linux/ramips/base-files/etc/board.d/01_leds
+===================================================================
+--- target/linux/ramips/base-files/etc/board.d/01_leds	(revision 42231)
++++ target/linux/ramips/base-files/etc/board.d/01_leds	(working copy)
+@@ -135,6 +135,49 @@
+ 	na930)
+ 		set_usb_led "na930:blue:status"
+ 		;;
++	keenetic)
++		ucidef_set_led_default "power" "power" "zyxel:green:power" "1"
++		set_usb_led "zyxel:green:usb"
++		set_wifi_led "rt2800soc-phy0::radio"
++		;;
++	keenetic_giga)
++		ucidef_set_led_default "power" "power" "zyxel:green:power" "1"
++		set_usb_led "zyxel:green:usb"
++		set_wifi_led "zyxel:green:wlan"
++		;;
++	keenetic_lite_a)
++		ucidef_set_led_default "power" "power" "zyxel:green:power" "1"
++		;;
++	nbg4104)
++		ucidef_set_led_default "power" "power" "zyxel:green:power" "1"
++		set_wifi_led "rt2800soc-phy0::radio"
++		;;
++	keenetic_4g_a)
++		ucidef_set_led_default "power" "power" "zyxel:green:power" "1"
++		set_usb_led "zyxel:green:usb"
++		set_wifi_led "rt2800soc-phy0::radio"
++		;;
++	nbg4114)
++		ucidef_set_led_default "power" "power" "zyxel:green:power" "1"
++		set_usb_led "zyxel:green:usb"
++		set_wifi_led "zyxel:green:wlan"
++		ucidef_set_led_heartbeat "heartbeat" "reserved" "zyxel:green:reserved"
++		;;
++	keenetic_start)
++		ucidef_set_led_default "power" "power" "zyxel:green:power" "1"
++		set_wifi_led "rt2800soc-phy0::radio"
++		;;
++	keenetic_4g_ii)
++		ucidef_set_led_default "power" "power" "zyxel:green:power" "1"
++		set_usb_led "zyxel:green:usb"
++		set_wifi_led "rt2800soc-phy0::radio"
++		;;
++	keenetic_lite_ii)
++		ucidef_set_led_default "power" "power" "zyxel:green:power" "1"
++		;;
++	keenetic_omni)
++		ucidef_set_led_default "power" "power" "zyxel:green:power" "1"
++		;;
+ 	nw718)
+ 		set_usb_led "nw718:amber:usb"
+ 		;;
+Index: target/linux/ramips/base-files/etc/board.d/02_network
+===================================================================
+--- target/linux/ramips/base-files/etc/board.d/02_network	(revision 42231)
++++ target/linux/ramips/base-files/etc/board.d/02_network	(working copy)
+@@ -104,6 +104,13 @@
+ 	dir-615-h1 | \
+ 	hlk-rm04 | \
+ 	mzk-w300nh2 | \
++	keenetic | \
++	keenetic_lite_a | \
++	nbg4104 | \
++	keenetic_start | \
++	keenetic_4g_ii | \
++	keenetic_lite_ii | \
++	keenetic_omni | \
+ 	mzk-750dhp)
+ 		ucidef_set_interfaces_lan_wan "eth0.1" "eth0.2"
+ 		ucidef_add_switch "switch0" "1" "1"
+@@ -111,6 +118,12 @@
+ 		ucidef_add_switch_vlan "switch0" "2" "4 6t"
+ 		;;
+ 
++	keenetic_giga )
++		ucidef_set_interfaces_lan_wan "eth0.1" "eth0.2"
++		ucidef_add_switch "switch0" "1" "1"
++		ucidef_add_switch_vlan "switch0" "1" "0 1 2 3 4 5 6t"
++		;;
++
+ 	awm002-evb | \
+ 	awm003-evb | \
+ 	argus-atp52b | \
+@@ -198,6 +211,20 @@
+ 		ucidef_set_interface_lan "eth0"
+ 		;;
+ 
++	keenetic_4g_a)
++		ucidef_set_interfaces_lan_wan "eth0.1" "eth0.2"
++		ucidef_add_switch "switch0" "1" "1"
++		ucidef_add_switch_vlan "switch0" "1" "2 3 6t"
++		ucidef_add_switch_vlan "switch0" "2" "0 6t"
++		;;
++
++	nbg4114)
++		ucidef_set_interfaces_lan_wan "eth0.1" "eth0.2"
++		ucidef_add_switch "switch0" "1" "1"
++		ucidef_add_switch_vlan "switch0" "1" "0 1 6t"
++		ucidef_add_switch_vlan "switch0" "2" "4 6t"
++		;;
++
+ 	*)
+ 		RT3X5X=`cat /proc/cpuinfo | egrep "(RT3.5|RT5350)"`
+ 		if [ -n "${RT3X5X}" ]; then
+@@ -270,6 +297,16 @@
+ 		wan_mac=$(mtd_get_mac_ascii nvram wanmac)
+ 		;;
+ 
++	keenetic | \
++	keenetic_giga | \
++	keenetic_lite_a | \
++	nbg4104 | \
++	keenetic_4g_a | \
++	nbg4114 | \
++	keenetic_start | \
++	keenetic_4g_ii | \
++	keenetic_lite_ii | \
++	keenetic_omni | \
+ 	wcr-150gn)
+                 wan_mac=$(mtd_get_mac_binary factory 40)
+ 		;;
+Index: target/linux/ramips/base-files/etc/diag.sh
+===================================================================
+--- target/linux/ramips/base-files/etc/diag.sh	(revision 42231)
++++ target/linux/ramips/base-files/etc/diag.sh	(working copy)
+@@ -85,6 +85,18 @@
+ 	mpr-a2)
+ 		status_led="hame:red:power"
+ 		;;
++	keenetic|\
++	keenetic_giga|\
++	keenetic_lite_a|\
++	nbg4104|\
++	keenetic_4g_a|\
++	nbg4114|\
++	keenetic_start|\
++	keenetic_4g_ii|\
++	keenetic_lite_ii|\
++	keenetic_omni)
++		status_led="zyxel:green:power"
++		;;
+ 	nbg-419n)
+ 		status_led="nbg-419n:green:power"
+ 		;;
+Index: target/linux/ramips/base-files/lib/preinit/06_set_iface_mac
+===================================================================
+--- target/linux/ramips/base-files/lib/preinit/06_set_iface_mac	(revision 41429)
++++ target/linux/ramips/base-files/lib/preinit/06_set_iface_mac	(working copy)
+@@ -72,6 +72,16 @@
+ 	ip2202 |\
+ 	rt-n13u |\
+ 	hw550-3g |\
++	keenetic |\
++	keenetic_giga |\
++	keenetic_lite_a |\
++	nbg4104 |\
++	keenetic_4g_a |\
++	nbg4114 |\
++	keenetic_start |\
++	keenetic_4g_ii |\
++	keenetic_lite_ii |\
++	keenetic_omni |\
+ 	nbg-419n |\
+ 	omni-emb |\
+ 	omni-emb-hpm |\
+Index: target/linux/ramips/base-files/lib/ramips.sh
+===================================================================
+--- target/linux/ramips/base-files/lib/ramips.sh	(revision 42231)
++++ target/linux/ramips/base-files/lib/ramips.sh	(working copy)
+@@ -148,6 +148,9 @@
+ 	*"Asus RT-N14U")
+ 		name="rt-n14u"
+ 		;;
++	*"Asus RT-N14U")
++		name="rt-n14u"
++		;;
+ 	*"Asus RT-N13U")
+ 		name="rt-n13u"
+ 		;;
+@@ -322,6 +325,36 @@
+ 	*"Sercomm NA930")
+ 		name="na930"
+ 		;;
++	*"ZyXEL Keenetic")
++		name="keenetic"
++		;;
++	*"ZyXEL Keenetic Giga")
++		name="keenetic_giga"
++		;;
++	*"ZyXEL Keenetic Lite rev.A")
++		name="keenetic_lite_a"
++		;;
++	*"ZyXEL Keenetic Lite rev.B")
++		name="nbg4104"
++		;;
++	*"ZyXEL Keenetic 4G rev.A")
++		name="keenetic_4g_a"
++		;;
++	*"ZyXEL Keenetic 4G rev.B")
++		name="nbg4114"
++		;;
++	*"ZyXEL Keenetic Start")
++		name="keenetic_start"
++		;;
++	*"ZyXEL Keenetic 4G II")
++		name="keenetic_4g_ii"
++		;;
++	*"ZyXEL Keenetic Lite II")
++		name="keenetic_lite_ii"
++		;;
++	*"ZyXEL Keenetic Omni")
++		name="keenetic_omni"
++		;;
+ 	*"Zbtlink ZBT-WA05")
+ 		name="zbt-wa05"
+ 		;;
+Index: target/linux/ramips/base-files/lib/upgrade/platform.sh
+===================================================================
+--- target/linux/ramips/base-files/lib/upgrade/platform.sh	(revision 42231)
++++ target/linux/ramips/base-files/lib/upgrade/platform.sh	(working copy)
+@@ -60,6 +60,16 @@
+ 	mpr-a1 | \
+ 	mpr-a2 | \
+ 	mzk-w300nh2 | \
++	keenetic | \
++	keenetic_giga | \
++	keenetic_lite_a | \
++	nbg4104 | \
++	keenetic_4g_a | \
++	nbg4114 | \
++	keenetic_start | \
++	keenetic_4g_ii | \
++	keenetic_lite_ii | \
++	keenetic_omni | \
+ 	nbg-419n | \
+ 	nw718 | \
+ 	omni-emb | \
+Index: target/linux/ramips/dts/KEENETIC.dts
+===================================================================
+--- target/linux/ramips/dts/KEENETIC.dts	(revision 0)
++++ target/linux/ramips/dts/KEENETIC.dts	(working copy)
+@@ -0,0 +1,106 @@
++/dts-v1/;
++
++/include/ "rt3050.dtsi"
++
++/ {
++	compatible = "KEENETIC", "ralink,rt3050-soc";
++	model = "ZyXEL Keenetic";
++
++	pinctrl {
++		state_default: pinctrl0 {
++			gpio {
++				ralink,group = "i2c", "jtag", "uartf";
++				ralink,function = "gpio";
++			};
++		};
++	};
++
++	cfi@1f000000 {
++		compatible = "cfi-flash";
++		reg = <0x1f000000 0x800000>;
++
++		bank-width = <2>;
++		device-width = <2>;
++		#address-cells = <1>;
++		#size-cells = <1>;
++
++		partition@0 {
++			label = "u-boot";
++			reg = <0x0 0x30000>;
++			read-only;
++		};
++
++		partition@30000 {
++			label = "u-boot-env";
++			reg = <0x30000 0x10000>;
++			read-only;
++		};
++
++		factory: partition@40000 {
++			label = "factory";
++			reg = <0x40000 0x10000>;
++			read-only;
++		};
++
++		partition@50000 {
++			label = "firmware";
++			reg = <0x50000 0x7b0000>;
++		};
++	};
++
++	ethernet@10100000 {
++		mtd-mac-address = <&factory 0x4>;
++	};
++
++	esw@10110000 {
++		ralink,portmap = <0x2f>;
++	};
++
++	wmac@10180000 {
++		ralink,mtd-eeprom = <&factory 0>;
++	};
++
++	gpio-leds {
++		compatible = "gpio-leds";
++		power {
++			label = "zyxel:green:power";
++			gpios = <&gpio0 9 1>;
++		};
++		usb {
++			label = "zyxel:green:usb";
++			gpios = <&gpio0 13 1>;
++		};
++		wps {
++			label = "zyxel:green:wps";
++			gpios = <&gpio0 14 1>;
++		};
++	};
++
++	gpio-keys-polled {
++	compatible = "gpio-keys-polled";
++	#address-cells = <1>;
++	#size-cells = <0>;
++	poll-interval = <20>;
++		reset {
++			label = "reset";
++			gpios = <&gpio0 10 1>;
++			linux,code = <0x198>;
++		};
++		/* 1-on, 0-off */
++		wifi {
++			label = "wifi";
++			gpios = <&gpio0 12 0>;
++			linux,code = <0xf7>;
++			linux,input-type = <5>; /* EV_SW */
++		};
++		wps {
++			label = "wps";
++			gpios = <&gpio0 0 1>;
++			linux,code = <0x211>;
++		};
++	};
++
++	otg@101c0000 {
++		status = "okay";
++	};
++};
+Index: target/linux/ramips/dts/KEENETIC_4G_A.dts
+===================================================================
+--- target/linux/ramips/dts/KEENETIC_4G_A.dts	(revision 0)
++++ target/linux/ramips/dts/KEENETIC_4G_A.dts	(working copy)
+@@ -0,0 +1,100 @@
++/dts-v1/;
++
++/include/ "rt3050.dtsi"
++
++/ {
++	compatible = "KEENETIC_4G_A", "ralink,rt3050-soc";
++	model = "ZyXEL Keenetic 4G rev.A";
++
++	pinctrl {
++		state_default: pinctrl0 {
++			gpio {
++				ralink,group = "i2c", "jtag", "uartf";
++				ralink,function = "gpio";
++			};
++		};
++	};
++
++	cfi@1f000000 {
++		compatible = "cfi-flash";
++		reg = <0x1f000000 0x800000>;
++
++		bank-width = <2>;
++		device-width = <2>;
++		#address-cells = <1>;
++		#size-cells = <1>;
++
++		partition@0 {
++			label = "u-boot";
++			reg = <0x0 0x30000>;
++			read-only;
++		};
++
++		partition@30000 {
++			label = "u-boot-env";
++			reg = <0x30000 0x10000>;
++			read-only;
++		};
++
++		factory: partition@40000 {
++			label = "factory";
++			reg = <0x40000 0x10000>;
++			read-only;
++		};
++
++		partition@50000 {
++			label = "firmware";
++			reg = <0x50000 0x3b0000>;
++		};
++	};
++
++	ethernet@10100000 {
++		mtd-mac-address = <&factory 0x4>;
++	};
++
++	esw@10110000 {
++		ralink,portmap = <0x2f>;
++	};
++
++	wmac@10180000 {
++		ralink,mtd-eeprom = <&factory 0>;
++	};
++
++	gpio-leds {
++		compatible = "gpio-leds";
++		power {
++			label = "zyxel:green:power";
++			gpios = <&gpio0 8 1>;
++		};
++		usb {
++			label = "zyxel:green:usb";
++			gpios = <&gpio0 9 1>;
++		};
++		internet {
++			label = "zyxel:green:internet";
++			gpios = <&gpio0 13 1>;
++		};
++	};
++
++
++	gpio-keys-polled {
++	compatible = "gpio-keys-polled";
++	#address-cells = <1>;
++	#size-cells = <0>;
++	poll-interval = <20>;
++		reset {
++			label = "reset";
++			gpios = <&gpio0 10 1>;
++			linux,code = <0x198>;
++		};
++		wps {
++			label = "wps";
++			gpios = <&gpio0 0 1>;
++			linux,code = <0x211>;
++		};
++	};
++
++	otg@101c0000 {
++		status = "okay";
++	};
++};
+Index: target/linux/ramips/dts/KEENETIC_4G_II.dts
+===================================================================
+--- target/linux/ramips/dts/KEENETIC_4G_II.dts	(revision 0)
++++ target/linux/ramips/dts/KEENETIC_4G_II.dts	(working copy)
+@@ -0,0 +1,109 @@
++/dts-v1/;
++
++/include/ "rt5350.dtsi"
++
++/ {
++	compatible = "KEENETIC_4G_II", "ralink,rt5350-soc";
++	model = "ZyXEL Keenetic 4G II";
++
++	palmbus@10000000 {
++		spi@b00 {
++			status = "okay";
++			m25p80@0 {
++				#address-cells = <1>;
++				#size-cells = <1>;
++				compatible = "s25fl064k";
++				reg = <0 0>;
++				linux,modalias = "m25p80", "s25fl064k";
++				spi-max-frequency = <10000000>;
++
++				partition@0 {
++					label = "u-boot";
++					reg = <0x0 0x30000>;
++					read-only;
++				};
++
++				partition@30000 {
++					label = "u-boot-env";
++					reg = <0x30000 0x10000>;
++					read-only;
++				};
++
++				factory: partition@40000 {
++					label = "factory";
++						reg = <0x40000 0x10000>;
++					read-only;
++				};
++
++				partition@50000 {
++					label = "firmware";
++					reg = <0x50000 0x3b0000>;
++				};
++			};
++		};
++	};
++
++	pinctrl {
++		state_default: pinctrl0 {
++			gpio {
++				ralink,group = "i2c", "jtag", "uartf";
++				ralink,function = "gpio";
++			};
++		};
++	};
++
++	ethernet@10100000 {
++		mtd-mac-address = <&factory 0x4>;
++	};
++
++	esw@10110000 {
++		ralink,portmap = <0x2f>;
++		ralink,led_polarity = <0x17>;
++	};
++
++	wmac@10180000 {
++		ralink,mtd-eeprom = <&factory 0>;
++	};
++
++	gpio-leds {
++		compatible = "gpio-leds";
++		power {
++			label = "zyxel:green:power";
++			gpios = <&gpio0 9 1>;
++		};
++		usb {
++			label = "zyxel:green:usb";
++			gpios = <&gpio0 14 1>;
++		};
++		internet {
++			label = "zyxel:green:internet";
++			gpios = <&gpio0 13 1>;
++		};
++	};
++
++	gpio-keys-polled {
++	compatible = "gpio-keys-polled";
++	#address-cells = <1>;
++	#size-cells = <0>;
++	poll-interval = <20>;
++		reset {
++			label = "reset";
++			gpios = <&gpio0 10 1>;
++			linux,code = <0x198>;
++		};
++		wps {
++			label = "wps";
++			gpios = <&gpio0 0 1>;
++			linux,code = <0x211>;
++		};
++	};
++
++	ehci@101c0000 {
++		status = "okay";
++	};
++
++	ohci@101c0000 {
++		status = "okay";
++	};
++
++};
+Index: target/linux/ramips/dts/KEENETIC_GIGA.dts
+===================================================================
+--- target/linux/ramips/dts/KEENETIC_GIGA.dts	(revision 0)
++++ target/linux/ramips/dts/KEENETIC_GIGA.dts	(working copy)
+@@ -0,0 +1,134 @@
++/dts-v1/;
++
++/include/ "rt3050.dtsi"
++
++/ {
++	compatible = "KEENETIC_GIGA", "ralink,rt3050-soc";
++	model = "ZyXEL Keenetic Giga";
++
++	pinctrl {
++		state_default: pinctrl0 {
++			gpio {
++				ralink,group = "i2c", "jtag", "uartf";
++				ralink,function = "gpio";
++			};
++		};
++	};
++
++	cfi@1f000000 {
++		compatible = "cfi-flash";
++		reg = <0x1f000000 0x800000>;
++
++		bank-width = <2>;
++		device-width = <2>;
++		#address-cells = <1>;
++		#size-cells = <1>;
++
++		partition@0 {
++			label = "u-boot";
++			reg = <0x0 0x30000>;
++			read-only;
++		};
++
++		partition@30000 {
++			label = "u-boot-env";
++			reg = <0x30000 0x10000>;
++			read-only;
++		};
++
++		factory: partition@40000 {
++			label = "factory";
++			reg = <0x40000 0x10000>;
++			read-only;
++		};
++
++		partition@50000 {
++			label = "firmware";
++			reg = <0x50000 0x7b0000>;
++		};
++	};
++
++	ethernet@10100000 {
++		mtd-mac-address = <&factory 0x4>;
++	};
++
++	esw@10110000 {
++		ralink,portmap = <0x3f>;
++		ralink,fct2 = <0x0002500c>;
++		/* ext phy base addr 31, rx/tx clock skew 0,
++		 * turbo mii off, rgmi 3.3v off, port 5 polling off
++		 * port5: enabled, gige, full-duplex, rx/tx-flow-control
++		 * port6: enabled, gige, full-duplex, rx/tx-flow-control
++		*/
++		ralink,fpa2 = <0x1f003fff>;
++	};
++
++	wmac@10180000 {
++		ralink,mtd-eeprom = <&factory 0>;
++	};
++
++	gpio-leds {
++		compatible = "gpio-leds";
++		power {
++			label = "zyxel:green:power";
++			gpios = <&gpio0 9 1>;
++		};
++		wlan {
++			label = "zyxel:green:wlan";
++			gpios = <&gpio0 14 1>;
++		};
++		internet {
++			label = "zyxel:green:internet";
++			gpios = <&gpio0 13 1>;
++		};
++		usb {
++			label = "zyxel:green:usb";
++			gpios = <&gpio0 8 1>;
++		};
++	};
++
++
++	gpio-keys-polled {
++	compatible = "gpio-keys-polled";
++	#address-cells = <1>;
++	#size-cells = <0>;
++	poll-interval = <20>;
++		reset {
++			label = "reset";
++			gpios = <&gpio0 10 1>;
++			linux,code = <0x198>;
++		};
++		/* 1-on, 0-off */
++		wifi {
++			label = "wifi";
++			gpios = <&gpio0 12 0>;
++			linux,code = <0xf7>;
++			linux,input-type = <5>; /* EV_SW */
++		};
++		wps {
++			label = "wps";
++			gpios = <&gpio0 0 1>;
++			linux,code = <0x211>;
++		};
++		usb_a {
++			label = "usb_a";
++			gpios = <&gpio0 2 1>;
++			linux,code = <0x212>;
++		};
++		usb_b {
++			label = "usb_b";
++			gpios = <&gpio0 1 1>;
++			linux,code = <0x213>;
++		};
++	};
++
++	rtl8366rb {
++		compatible = "rtl8367rb";
++		gpio-sda = <&gpio0 1 0>;
++		gpio-sck = <&gpio0 2 0>;
++	};
++	
++	otg@101c0000 {
++		status = "okay";
++	};
++};
+Index: target/linux/ramips/dts/KEENETIC_LITE_A.dts
+===================================================================
+--- target/linux/ramips/dts/KEENETIC_LITE_A.dts	(revision 0)
++++ target/linux/ramips/dts/KEENETIC_LITE_A.dts	(working copy)
+@@ -0,0 +1,66 @@
++/dts-v1/;
++
++/include/ "rt3050.dtsi"
++
++/ {
++	compatible = "KEENETIC_LITE_A", "ralink,rt3050-soc";
++	model = "ZyXEL Keenetic Lite rev.A";
++
++	pinctrl {
++		state_default: pinctrl0 {
++			gpio {
++				ralink,group = "i2c", "jtag", "uartf";
++				ralink,function = "gpio";
++			};
++		};
++	};
++
++	cfi@1f000000 {
++		compatible = "cfi-flash";
++		reg = <0x1f000000 0x800000>;
++
++		bank-width = <2>;
++		device-width = <2>;
++		#address-cells = <1>;
++		#size-cells = <1>;
++
++		partition@0 {
++			label = "u-boot";
++			reg = <0x0 0x30000>;
++			read-only;
++		};
++
++		partition@30000 {
++			label = "u-boot-env";
++			reg = <0x30000 0x10000>;
++			read-only;
++		};
++
++		factory: partition@40000 {
++			label = "factory";
++			reg = <0x40000 0x10000>;
++			read-only;
++		};
++
++		partition@50000 {
++			label = "firmware";
++			reg = <0x50000 0x3b0000>;
++		};
++	};
++
++	ethernet@10100000 {
++		mtd-mac-address = <&factory 0x4>;
++	};
++
++	esw@10110000 {
++		ralink,portmap = <0x2f>;
++	};
++
++	wmac@10180000 {
++		ralink,mtd-eeprom = <&factory 0>;
++	};
++
++	otg@101c0000 {
++		status = "okay";
++	};
++};
+Index: target/linux/ramips/dts/KEENETIC_LITE_II.dts
+===================================================================
+--- target/linux/ramips/dts/KEENETIC_LITE_II.dts	(revision 0)
++++ target/linux/ramips/dts/KEENETIC_LITE_II.dts	(working copy)
+@@ -0,0 +1,139 @@
++/dts-v1/;
++
++/include/ "mt7620n.dtsi"
++
++/ {
++	compatible = "KEENETIC_LITE_II", "ralink,mt7620n-soc";
++	model = "Keenetic Lite II";
++
++	pinctrl {
++		state_default: pinctrl0 {
++			gpio {
++				ralink,group = "i2c", "uartf", "mdio", "pa", "rgmii1", "wdt";
++				ralink,function = "gpio";
++			};
++		};
++	};
++
++	palmbus@10000000 {
++		gpio2: gpio@660 {
++			status = "okay";
++		};
++
++		gpio3: gpio@688 {
++			status = "okay";
++		};
++
++		spi@b00 {
++			status = "okay";
++
++			m25p80@0 {
++				#address-cells = <1>;
++				#size-cells = <1>;
++				#compatible = "mx25l6405d";
++				compatible = "w25q128";
++				reg = <0 0>;
++				linux,modalias = "m25p80", "w25q128";
++				spi-max-frequency = <10000000>;
++
++				partition@0 {
++					label = "u-boot";
++					reg = <0x0 0x30000>;
++					read-only;
++				};
++
++				partition@30000 {
++					label = "u-boot-env";
++					reg = <0x30000 0x10000>;
++					read-only;
++				};
++
++				factory: partition@40000 {
++					label = "factory";
++					reg = <0x40000 0x10000>;
++					read-only;
++				};
++
++				partition@50000 {
++					label = "firmware";
++					reg = <0x50000 0x7b0000>;
++				};
++			};
++		};
++	};
++	
++	wmac@10180000 {
++		ralink,mtd-eeprom = <&factory 0>;
++	};
++
++	gpio-leds {
++		compatible = "gpio-leds";
++		power {
++			label = "zyxel:green:power";
++			gpios = <&gpio0 20 1>;
++		};
++		wlan {
++			label = "zyxel:green:wlan";
++			gpios = <&gpio0 72 1>;
++		};
++		port0 {
++			label = "zyxel:green:port0";
++			gpios = <&gpio0 44 1>;
++		};
++		port1 {
++			label = "zyxel:green:port1";
++			gpios = <&gpio0 43 1>;
++		};
++		port2 {
++			label = "zyxel:green:port2";
++			gpios = <&gpio0 42 1>;
++		};
++		port3 {
++			label = "zyxel:green:port3";
++			gpios = <&gpio0 41 1>;
++		};
++		port4 {
++			label = "zyxel:green:port4";
++			gpios = <&gpio0 40 1>;
++		};
++	};
++	
++	gpio-keys-polled {
++	compatible = "gpio-keys-polled";
++	#address-cells = <1>;
++	#size-cells = <0>;
++	poll-interval = <20>;
++		reset {
++			label = "reset";
++			gpios = <&gpio0 1 1>;
++			linux,code = <0x198>;
++		};
++		wps {
++			label = "wps";
++			gpios = <&gpio0 2 1>;
++			linux,code = <0x211>;
++		};
++	};
++
++	ehci@101c0000 {
++		status = "okay";
++	};
++
++	ohci@101c1000 {
++		status = "okay";
++	};
++
++	ethernet@10100000 {
++		mtd-mac-address = <&factory 0x4>;
++		ralink,port-map = "wllll";
++	};
++
++	pinctrl {
++		state_default: pinctrl0 {
++			default {
++				ralink,group = "ephy", "wled";
++				ralink,function = "gpio";
++			};
++		};
++	};
++};
+Index: target/linux/ramips/dts/KEENETIC_OMNI.dts
+===================================================================
+--- target/linux/ramips/dts/KEENETIC_OMNI.dts	(revision 0)
++++ target/linux/ramips/dts/KEENETIC_OMNI.dts	(working copy)
+@@ -0,0 +1,90 @@
++/dts-v1/;
++
++/include/ "mt7620n.dtsi"
++
++/ {
++	compatible = "KEENETIC_OMNI", "ralink,mt7620n-soc";
++	model = "Keenetic Omni";
++
++	palmbus@10000000 {
++		gpio2: gpio@660 {
++			status = "okay";
++		};
++
++		gpio3: gpio@688 {
++			status = "okay";
++		};
++
++		spi@b00 {
++			status = "okay";
++
++			m25p80@0 {
++				#address-cells = <1>;
++				#size-cells = <1>;
++				#compatible = "mx25l6405d";
++				compatible = "w25q128";
++				reg = <0 0>;
++				linux,modalias = "m25p80", "w25q128";
++				spi-max-frequency = <10000000>;
++
++				partition@0 {
++					label = "u-boot";
++					reg = <0x0 0x30000>;
++					read-only;
++				};
++
++				partition@30000 {
++					label = "u-boot-env";
++					reg = <0x30000 0x10000>;
++					read-only;
++				};
++
++				factory: partition@40000 {
++					label = "factory";
++					reg = <0x40000 0x10000>;
++					read-only;
++				};
++
++				partition@50000 {
++					label = "firmware";
++					reg = <0x50000 0x7b0000>;
++				};
++			};
++		};
++	};
++
++	pinctrl {
++		state_default: pinctrl0 {
++			gpio {
++				ralink,group = "i2c", "jtag", "uartf", "mdio", "pa", "phy_led", "rgmii1", "wdt_pins";
++				ralink,function = "gpio";
++			};
++		};
++	};
++
++	wmac@10180000 {
++		ralink,mtd-eeprom = <&factory 0>;
++	};
++
++	ehci@101c0000 {
++		status = "okay";
++	};
++
++	ohci@101c1000 {
++		status = "okay";
++	};
++
++	ethernet@10100000 {
++		mtd-mac-address = <&factory 0x4>;
++		ralink,port-map = "wllll";
++	};
++
++	pinctrl {
++		state_default: pinctrl0 {
++			default {
++				ralink,group = "ephy", "wled";
++				ralink,function = "gpio";
++			};
++		};
++	};
++};
+Index: target/linux/ramips/dts/KEENETIC_START.dts
+===================================================================
+--- target/linux/ramips/dts/KEENETIC_START.dts	(revision 0)
++++ target/linux/ramips/dts/KEENETIC_START.dts	(working copy)
+@@ -0,0 +1,105 @@
++/dts-v1/;
++
++/include/ "rt5350.dtsi"
++
++/ {
++	compatible = "KEENETIC_START", "ralink,rt5350-soc";
++	model = "ZyXEL Keenetic Start";
++
++	palmbus@10000000 {
++		spi@b00 {
++			status = "okay";
++			m25p80@0 {
++				#address-cells = <1>;
++				#size-cells = <1>;
++				compatible = "s25fl064k";
++				reg = <0 0>;
++				linux,modalias = "m25p80", "s25fl064k";
++				spi-max-frequency = <10000000>;
++
++				partition@0 {
++					label = "u-boot";
++					reg = <0x0 0x30000>;
++					read-only;
++				};
++
++				partition@30000 {
++					label = "u-boot-env";
++					reg = <0x30000 0x10000>;
++					read-only;
++				};
++
++				factory: partition@40000 {
++					label = "factory";
++						reg = <0x40000 0x10000>;
++					read-only;
++				};
++
++				partition@50000 {
++					label = "firmware";
++					reg = <0x50000 0x3b0000>;
++				};
++			};
++		};
++	};
++
++	pinctrl {
++		state_default: pinctrl0 {
++			gpio {
++				ralink,group = "i2c", "jtag", "uartf";
++				ralink,function = "gpio";
++			};
++		};
++	};
++
++	ethernet@10100000 {
++		mtd-mac-address = <&factory 0x4>;
++	};
++
++	esw@10110000 {
++		ralink,portmap = <0x2f>;
++		ralink,led_polarity = <0x17>;
++	};
++	
++	wmac@10180000 {
++		ralink,mtd-eeprom = <&factory 0>;
++	};
++
++	gpio-leds {
++		compatible = "gpio-leds";
++		power {
++			label = "zyxel:green:power";
++			gpios = <&gpio0 9 1>;
++		};
++		internet {
++			label = "zyxel:green:internet";
++			gpios = <&gpio0 13 1>;
++		};
++	};
++
++	gpio-keys-polled {
++	compatible = "gpio-keys-polled";
++	#address-cells = <1>;
++	#size-cells = <0>;
++	poll-interval = <20>;
++		reset {
++			label = "reset";
++			gpios = <&gpio0 10 1>;
++			linux,code = <0x198>;
++		};
++		wps {
++			label = "wps";
++			gpios = <&gpio0 0 1>;
++			linux,code = <0x211>;
++		};
++	};
++	
++	ehci@101c0000 {
++		status = "okay";
++	};
++
++	ohci@101c0000 {
++		status = "okay";
++	};
++
++};
+Index: target/linux/ramips/dts/NBG4104.dts
+===================================================================
+--- target/linux/ramips/dts/NBG4104.dts	(revision 0)
++++ target/linux/ramips/dts/NBG4104.dts	(working copy)
+@@ -0,0 +1,105 @@
++/dts-v1/;
++
++/include/ "rt5350.dtsi"
++
++/ {
++	compatible = "NBG4104", "ralink,rt5350-soc";
++	model = "ZyXEL Keenetic Lite rev.B";
++
++	palmbus@10000000 {
++		spi@b00 {
++			status = "okay";
++			m25p80@0 {
++				#address-cells = <1>;
++				#size-cells = <1>;
++				compatible = "s25fl064k";
++				reg = <0 0>;
++				linux,modalias = "m25p80", "s25fl064k";
++				spi-max-frequency = <10000000>;
++
++				partition@0 {
++					label = "u-boot";
++					reg = <0x0 0x30000>;
++					read-only;
++				};
++
++				partition@30000 {
++					label = "u-boot-env";
++					reg = <0x30000 0x10000>;
++					read-only;
++				};
++
++				factory: partition@40000 {
++					label = "factory";
++						reg = <0x40000 0x10000>;
++					read-only;
++				};
++
++				partition@50000 {
++					label = "firmware";
++					reg = <0x50000 0x7b0000>;
++				};
++			};
++		};
++	};
++
++	pinctrl {
++		state_default: pinctrl0 {
++			gpio {
++				ralink,group = "i2c", "jtag", "uartf";
++				ralink,function = "gpio";
++			};
++		};
++	};
++
++	ethernet@10100000 {
++		mtd-mac-address = <&factory 0x4>;
++	};
++
++	esw@10110000 {
++		ralink,portmap = <0x2f>;
++		ralink,led_polarity = <0x17>;
++	};
++	
++	wmac@10180000 {
++		ralink,mtd-eeprom = <&factory 0>;
++	};
++
++	gpio-leds {
++		compatible = "gpio-leds";
++		power {
++			label = "zyxel:green:power";
++			gpios = <&gpio0 9 1>;
++		};
++		wps {
++			label = "zyxel:green:wps";
++			gpios = <&gpio0 14 1>;
++		};
++	};
++
++	gpio-keys-polled {
++		compatible = "gpio-keys-polled";
++		#address-cells = <1>;
++		#size-cells = <0>;
++		poll-interval = <20>;
++		reset {
++			label = "reset";
++			gpios = <&gpio0 10 1>;
++			linux,code = <0x198>;
++		};
++		wps {
++			label = "wps";
++			gpios = <&gpio0 0 1>;
++			linux,code = <0x211>;
++		};
++	};
++
++	ehci@101c0000 {
++		status = "okay";
++	};
++
++	ohci@101c0000 {
++		status = "okay";
++	};
++
++};
+Index: target/linux/ramips/dts/NBG4114.dts
+===================================================================
+--- target/linux/ramips/dts/NBG4114.dts	(revision 0)
++++ target/linux/ramips/dts/NBG4114.dts	(working copy)
+@@ -0,0 +1,119 @@
++/dts-v1/;
++
++/include/ "rt5350.dtsi"
++
++/ {
++	compatible = "NBG4114", "ralink,rt5350-soc";
++	model = "ZyXEL Keenetic 4G rev.B";
++
++	palmbus@10000000 {
++		spi@b00 {
++			status = "okay";
++			m25p80@0 {
++				#address-cells = <1>;
++				#size-cells = <1>;
++				compatible = "s25fl064k";
++				reg = <0 0>;
++				linux,modalias = "m25p80", "s25fl064k";
++				spi-max-frequency = <10000000>;
++
++				partition@0 {
++					label = "u-boot";
++					reg = <0x0 0x30000>;
++					read-only;
++				};
++
++				partition@30000 {
++					label = "u-boot-env";
++					reg = <0x30000 0x10000>;
++					read-only;
++				};
++
++				factory: partition@40000 {
++					label = "factory";
++						reg = <0x40000 0x10000>;
++					read-only;
++				};
++
++				partition@50000 {
++					label = "firmware";
++					reg = <0x50000 0x7b0000>;
++				};
++
++			};
++		};
++	};
++
++	pinctrl {
++		state_default: pinctrl0 {
++			gpio {
++				ralink,group = "i2c", "jtag", "uartf";
++				ralink,function = "gpio";
++			};
++		};
++	};
++
++	ethernet@10100000 {
++		mtd-mac-address = <&factory 0x4>;
++	};
++
++	esw@10110000 {
++		ralink,portmap = <0x2f>;
++		ralink,led_polarity = <0x17>;
++	};
++
++	wmac@10180000 {
++		ralink,mtd-eeprom = <&factory 0>;
++	};
++
++	gpio-leds {
++		compatible = "gpio-leds";
++		power {
++			label = "zyxel:green:power";
++			gpios = <&gpio0 9 1>;
++		};
++		usb {
++			label = "zyxel:green:usb";
++			gpios = <&gpio0 7 0>;
++		};
++		reserved {
++			label = "zyxel:green:reserved";
++			gpios = <&gpio0 12 0>;
++		};		
++		internet {
++			label = "zyxel:green:internet";
++			gpios = <&gpio0 11 0>;
++		};
++		wlan {
++			label = "zyxel:green:wlan";
++			gpios = <&gpio0 13 0>;
++		};
++	};
++
++
++	gpio-keys-polled {
++	compatible = "gpio-keys-polled";
++	#address-cells = <1>;
++	#size-cells = <0>;
++	poll-interval = <20>;
++		reset {
++			label = "reset";
++			gpios = <&gpio0 10 1>;
++			linux,code = <0x198>;
++		};
++		wps {
++			label = "wps";
++			gpios = <&gpio0 0 1>;
++			linux,code = <0x211>;
++		};
++	};
++
++	ehci@101c0000 {
++		status = "okay";
++	};
++
++	ohci@101c0000 {
++		status = "okay";
++	};
++
++};
+Index: target/linux/ramips/dts/mt7620n.dtsi
+===================================================================
+--- target/linux/ramips/dts/mt7620n.dtsi	(revision 42231)
++++ target/linux/ramips/dts/mt7620n.dtsi	(working copy)
+@@ -204,6 +204,12 @@
+ 		pinctrl-0 = <&state_default>;
+ 		state_default: pinctrl0 {
+ 		};
++		i2c_pins: i2c {
++			i2c {
++				ralink,group = "i2c";
++				ralink,function = "i2c";
++			};
++		};
+ 		spi_pins: spi {
+ 			spi {
+ 				ralink,group = "spi";
+@@ -210,6 +216,12 @@
+ 				ralink,function = "spi";
+ 			};
+ 		};
++		uartf_pins: uartf {
++			uartf {
++				ralink,group = "uartf";
++				ralink,function = "uartf";
++			};
++		};
+ 		uartlite_pins: uartlite {
+ 			uart {
+ 				ralink,group = "uartlite";
+@@ -216,6 +228,36 @@
+ 				ralink,function = "uartlite";
+ 			};
+ 		};
++		wdt_pins: wdt {
++			wdt {
++				ralink,group = "wdt";
++				ralink,function = "wdt";
++			};
++		};
++		pa_pins: pa {
++			pa {
++				ralink,group = "pa";
++				ralink,function = "pa";
++			};
++		};
++		mdio_pins: mdio {
++			mdio {
++				ralink,group = "mdio";
++				ralink,function = "mdio";
++			};
++		};
++		rgmii1_pins: rgmii1 {
++			rgmii1 {
++				ralink,group = "rgmii1";
++				ralink,function = "rgmii1";
++			};
++		};
++		phy_led_pins: phy_led {
++			phy_led {
++				ralink,group = "led";
++				ralink,function = "led";
++			};
++		};
+ 	};
+ 
+ 	rstctrl: rstctrl {
+Index: target/linux/ramips/image/Makefile
+===================================================================
+--- target/linux/ramips/image/Makefile	(revision 42231)
++++ target/linux/ramips/image/Makefile	(working copy)
+@@ -69,6 +69,10 @@
+ endef
+ 
+ define MkImageSysupgrade/squashfs
++	# $(1) = squashfs/initramfs
++	# $(2) = lowercase board name
++	# $(3) = max allowed size
++	# $(4) = type (sysupgrade/factory)
+ 	$(eval output_name=$(IMG_PREFIX)-$(2)-$(1)-$(if $(4),$(4),sysupgrade).bin)
+ 	cat $(KDIR)/vmlinux-$(2).uImage $(KDIR)/root.$(1) > $(KDIR)/$(output_name)
+ 	$(call prepare_generic_squashfs,$(KDIR)/$(output_name))
+@@ -80,6 +84,9 @@
+ endef
+ 
+ define PatchKernelLzmaDtb
++	# $(1) = lowercase board name
++	# $(2) = dts file
++	# $(3) = default/-initramfs
+ 	cp $(KDIR)/vmlinux$(3) $(KDIR)/vmlinux-$(1)$(3)
+ 	$(LINUX_DIR)/scripts/dtc/dtc -O dtb -o $(KDIR)/$(2).dtb ../dts/$(2).dts
+ 	$(STAGING_DIR_HOST)/bin/patch-dtb $(KDIR)/vmlinux-$(1)$(3) $(KDIR)/$(2).dtb
+@@ -87,11 +94,21 @@
+ endef
+ 
+ define MkImageLzmaDtb
++	# $(1) = lowercase board name
++	# $(2) = dts file
++	# $(3) = uImage text
++	# $(4) = default/-initramfs
+ 	$(call PatchKernelLzmaDtb,$(1),$(2),$(4))
+ 	$(call MkImage,lzma,$(KDIR)/vmlinux-$(1)$(4).bin.lzma,$(KDIR)/vmlinux-$(1)$(4).uImage,$(3))
+ endef
+ 
+ define BuildFirmware/OF
++	# $(1) = squashfs/initramfs
++	# $(2) = lowercase board name
++	# $(3) = dts file
++	# $(4) = max allowed size
++	# $(5) = uImage text
++	# $(6) = type (sysupgrade/factory)
+ 	$(call MkImageLzmaDtb,$(2),$(3),$(5))
+ 	$(call MkImageSysupgrade/$(1),$(1),$(2),$(4),$(6))
+ endef
+@@ -107,6 +124,7 @@
+ # $(1) = squashfs/initramfs
+ # $(2) = lowercase board name
+ # $(3) = dts file
++# $(4) = uImage text
+ ralink_default_fw_size_4M=3866624
+ BuildFirmware/Default4M/squashfs=$(call BuildFirmware/OF,$(1),$(2),$(3),$(ralink_default_fw_size_4M),$(4))
+ BuildFirmware/Default4M/initramfs=$(call BuildFirmware/OF/initramfs,$(1),$(2),$(3),$(4))
+@@ -116,6 +134,7 @@
+ # $(1) = squashfs/initramfs
+ # $(2) = lowercase board name
+ # $(3) = dts file
++# $(4) = uImage text
+ ralink_default_fw_size_8M=8060928
+ BuildFirmware/Default8M/squashfs=$(call BuildFirmware/OF,$(1),$(2),$(3),$(ralink_default_fw_size_8M),$(4))
+ BuildFirmware/Default8M/initramfs=$(call BuildFirmware/OF/initramfs,$(1),$(2),$(3),$(4))
+@@ -447,6 +466,53 @@
+ Image/Build/Profile/DIR-300-B7=$(call BuildFirmware/Default4M/$(1),$(1),dir-300-b7,DIR-300-B7)
+ Image/Build/Profile/DIR-320-B1=$(call BuildFirmware/Default8M/$(1),$(1),dir-320-b1,DIR-320-B1)
+ 
++define BuildFirmware/ZyXEL_Keenetic_series/squashfs
++	# $(1)=squashfs
++	# $(2)=lowercase_board_name
++	# $(3)=dts_file
++	# $(4)=max_FW_size
++	# $(5)=uImage_size
++	# $(6)=product_code
++	$(eval max_size=$(shell expr $(4) + 4))
++	$(call BuildFirmware/OF,$(1),$(2),$(3),$(max_size))
++	$(eval output_name=$(IMG_PREFIX)-$(2)-$(1)-factory)
++	
++	@if [ -f $(BIN_DIR)/$(IMG_PREFIX)-$(2)-$(1)-sysupgrade.bin ]; then \
++		if [ `stat -c%s "$(KDIR)/vmlinux-$(2).bin.lzma"` -gt `expr $(5) - 64` ]; then \
++			echo "Warning: unable to build Factory image! $(KDIR)/vmlinux-$(2).bin.lzma is too big: `stat -c%s "$(KDIR)/vmlinux-$(2).bin.lzma"` (`expr $(5) - 64` max) " >&2; \
++			rm $(KDIR)/vmlinux-$(2).bin.lzma; \
++		else \
++			echo "Generating Factory image!" >&2; \
++			dd if=$(KDIR)/vmlinux-$(2).bin.lzma of=$(KDIR)/vmlinux-$(2).bin.lzma.factory bs=`expr $(5) - 64` conv=sync; \
++		fi; \
++	fi
++	$(call MkImage,lzma,$(KDIR)/vmlinux-$(2).bin.lzma.factory,$(KDIR)/vmlinux-$(2).uImage.factory,$(3))
++	@if [ -f $(KDIR)/vmlinux-$(2).uImage.factory ] ; then \
++		cat $(KDIR)/vmlinux-$(2).uImage.factory $(KDIR)/root.$(1) > $(KDIR)/$(output_name).bin; \
++		if [ `stat -c%s "$(KDIR)/$(output_name).bin"` -gt $(max_size) ]; then \
++			echo "Warning: $(KDIR)/$(output_name).bin is too big: `stat -c%s "$(KDIR)/$(output_name).bin"` ($(max_size) max) " >&2; \
++		else \
++			$(CP) $(KDIR)/$(output_name).bin $(BIN_DIR)/$(output_name).bin; \
++			dd if=$(BIN_DIR)/$(output_name).bin of=$(BIN_DIR)/$(output_name).factory bs=65536 conv=sync; \
++			mv $(BIN_DIR)/$(output_name).factory $(BIN_DIR)/$(output_name).bin; \
++			$(STAGING_DIR_HOST)/bin/zyimage -v "$(output_name)" -d $(6) $(BIN_DIR)/$(output_name).bin; \
++		fi; \
++	else \
++		echo "Warning: Refusing to try to create Factory image due to Sysupgrade image $(BIN_DIR)/$(IMG_PREFIX)-$(2)-$(1)-sysupgrade.bin was not created!"; \
++	fi
++endef
++
++# 3538948(=0x360004) = 3866624(ralink_default_fw_size_4M=0x3B0000) - 327680(=0x50000) + 4
++# 7733252(=0x760004) = 8060928(ralink_default_fw_size_8M=0x7B0000) - 327680(=0x50000) + 4
++Image/Build/Profile/KEENETIC=$(call BuildFirmware/ZyXEL_Keenetic_series/$(1),$(1),keenetic,KEENETIC,7733252,1245184,0x00004215)
++Image/Build/Profile/KEENETIC_GIGA=$(call BuildFirmware/ZyXEL_Keenetic_series/$(1),$(1),keenetic_giga,KEENETIC_GIGA,7733252,1245184,0x00004615)
++Image/Build/Profile/KEENETIC_LITE_A=$(call BuildFirmware/ZyXEL_Keenetic_series/$(1),$(1),keenetic_lite_a,KEENETIC_LITE_A,3538948,983040,0x00000417)
++Image/Build/Profile/NBG4104=$(call BuildFirmware/ZyXEL_Keenetic_series/$(1),$(1),nbg4104,NBG4104,7733252,1245184,0x00004104)
++Image/Build/Profile/KEENETIC_4G_A=$(call BuildFirmware/ZyXEL_Keenetic_series/$(1),$(1),keenetic_4g_a,KEENETIC_4G_A,3538948,983040,0x00004115)
++Image/Build/Profile/NBG4114=$(call BuildFirmware/ZyXEL_Keenetic_series/$(1),$(1),nbg4114,NBG4114,7733252,1245184,0x00005115)
++Image/Build/Profile/KEENETIC_START=$(call BuildFirmware/ZyXEL_Keenetic_series/$(1),$(1),keenetic_start,KEENETIC_START,3538948,1048576,0x00001202)
++Image/Build/Profile/KEENETIC_4G_II=$(call BuildFirmware/ZyXEL_Keenetic_series/$(1),$(1),keenetic_4g_ii,KEENETIC_4G_II,3538948,1048576,0x00001212)
++
+ Image/Build/Profile/NBG-419N=$(call BuildFirmware/Default4M/$(1),$(1),nbg-419n,NBG-419N)
+ 
+ Image/Build/Profile/MZKW300NH2=$(call BuildFirmware/Edimax/$(1),$(1),mzk-w300nh2,MZK-W300NH2,$(mzkw300nh2_mtd_size),CSYS,RN52,0x50000,0xc0000)
+@@ -562,6 +628,14 @@
+ 
+ ifeq ($(SUBTARGET),rt305x)
+ define Image/Build/Profile/Default
++	$(call Image/Build/Profile/KEENETIC,$(1))
++	$(call Image/Build/Profile/KEENETIC_GIGA,$(1))
++	$(call Image/Build/Profile/KEENETIC_LITE_A,$(1))
++	$(call Image/Build/Profile/NBG4104,$(1))
++	$(call Image/Build/Profile/KEENETIC_4G_A,$(1))
++	$(call Image/Build/Profile/NBG4114,$(1))
++	$(call Image/Build/Profile/KEENETIC_START,$(1))
++	$(call Image/Build/Profile/KEENETIC_4G_II,$(1))
+ 	$(call Image/Build/Profile/3G6200N,$(1))
+ 	$(call Image/Build/Profile/3G6200NL,$(1))
+ 	$(call Image/Build/Profile/3G300M,$(1))
+@@ -760,6 +834,11 @@
+ Image/Build/Profile/WRTNODE=$(call BuildFirmware/Default16M/$(1),$(1),wrtnode,WRTNODE)
+ Image/Build/Profile/ZBT-WA05=$(call BuildFirmware/Default8M/$(1),$(1),zbt-wa05,ZBT-WA05)
+ 
++zyxel_default_fw_size_8M=7733248
++Image/Build/Profile/KEENETIC_LITE_II=$(call BuildFirmware/ZyXEL_Keenetic_series/$(1),$(1),keenetic_lite_ii,KEENETIC_LITE_II,$(zyxel_default_fw_size_8M),1245184,0x00001302)
++Image/Build/Profile/KEENETIC_OMNI=$(call BuildFirmware/ZyXEL_Keenetic_series/$(1),$(1),keenetic_omni,KEENETIC_OMNI,$(zyxel_default_fw_size_8M),1245184,0x00001312)
++
++
+ ifeq ($(SUBTARGET),mt7620n)
+ define Image/Build/Profile/Default
+ 	$(call Image/Build/Profile/MLW221,$(1))
+@@ -767,6 +846,8 @@
+ 	$(call Image/Build/Profile/RT-N14U,$(1))
+ 	$(call Image/Build/Profile/WR8305RT,$(1))
+ 	$(call Image/Build/Profile/WRTNODE,$(1))
++	$(call Image/Build/Profile/KEENETIC_LITE_II,$(1))
++	$(call Image/Build/Profile/KEENETIC_OMNI,$(1))
+ 	$(call Image/Build/Profile/ZBT-WA05,$(1))
+ endef
+ endif
+Index: target/linux/ramips/mt7620n/profiles/zyxel.mk
+===================================================================
+--- target/linux/ramips/mt7620n/profiles/zyxel.mk	(revision 0)
++++ target/linux/ramips/mt7620n/profiles/zyxel.mk	(working copy)
+@@ -0,0 +1,50 @@
++#
++# Copyright (C) 2013 OpenWrt.org
++#
++# This is free software, licensed under the GNU General Public License v2.
++# See /LICENSE for more information.
++#
++
++# Для роутеров с USB: 
++packages_KMOD_USB:=kmod-usb-core kmod-usb-rt305x-dwc_otg kmod-usb-ohci kmod-usb2 kmod-usb-storage kmod-ledtrig-usbdev
++packages_LUCI_USB:=luci-proto-3g
++packages_NET_USB:=kmod-usb-acm kmod-usb-net kmod-usb-net-rndis kmod-usb-serial kmod-usb-serial-option usb-modeswitch
++packages_FS_USB:=kmod-fs-ext4 kmod-nls-cp1251
++packages_USB:=$(packages_KMOD_USB) $(packages_LUCI_USB) $(packages_NET_USB) $(packages_FS_USB) 
++
++# Для роутеров без USB:
++# packages_FS_NET:=sshfs
++packages_NOUSB:=$(packages_FS_NET)
++packages_NOIPv6:=-kmod-ip6tables -kmod-ipv6 -odhcp6c -libip6tc
++
++packages_NET_ETHERNET:=xl2tpd ppp-mod-pptp
++packages_LUCI_GENERIC:=luci luci-i18n-russian
++packages_GENERIC:=kmod-ledtrig-netdev kmod-nls-utf8
++packages_IPv6:=luci-proto-ipv6
++
++packages_8M:=ntfs-3g kmod-fs-vfat zram-swap
++packages_4M:=-dropbear
++
++
++define Profile/KEENETIC_LITE_II
++	NAME:=ZyXEL Keenetic Lite II
++	PACKAGES:=$(packages_GENERIC) $(packages_NET_ETHERNET) $(packages_NOUSB) $(packages_IPv6) $(packages_LUCI_GENERIC) $(packages_8M)
++endef
++
++define Profile/KEENETIC_LITE_II/Description
++	Package set for ZyXEL Keenetic Lite II board
++endef
++
++$(eval $(call Profile,KEENETIC_LITE_II))
++
++
++define Profile/KEENETIC_OMNI
++	NAME:=ZyXEL Keenetic Omni
++	PACKAGES:=$(packages_GENERIC) $(packages_NET_ETHERNET) $(packages_USB) $(packages_IPv6) $(packages_LUCI_GENERIC) $(packages_8M)
++endef
++
++define Profile/KEENETIC_OMNI/Description
++	Package set for ZyXEL Keenetic Omni board
++endef
++
++$(eval $(call Profile,KEENETIC_OMNI))
+Index: target/linux/ramips/rt305x/profiles/zyxel.mk
+===================================================================
+--- target/linux/ramips/rt305x/profiles/zyxel.mk	(revision 0)
++++ target/linux/ramips/rt305x/profiles/zyxel.mk	(working copy)
+@@ -0,0 +1,122 @@
++#
++# Copyright (C) 2013 OpenWrt.org
++#
++# This is free software, licensed under the GNU General Public License v2.
++# See /LICENSE for more information.
++#
++
++# Для роутеров с USB: 
++packages_KMOD_USB:=kmod-usb-core kmod-usb-rt305x-dwc_otg kmod-usb-ohci kmod-usb2 kmod-usb-storage kmod-ledtrig-usbdev
++packages_LUCI_USB:=luci-proto-3g
++packages_NET_USB:=kmod-usb-acm kmod-usb-net kmod-usb-net-rndis kmod-usb-serial kmod-usb-serial-option usb-modeswitch
++packages_FS_USB:=kmod-fs-ext4 kmod-nls-cp1251
++packages_USB:=$(packages_KMOD_USB) $(packages_LUCI_USB) $(packages_NET_USB) $(packages_FS_USB) 
++
++# Для роутеров без USB:
++# Поддержка davfs2 в качестве overlay пока не реализована!
++# packages_FS_NET:=davfs2 libneon posixovl 
++packages_NOUSB:=$(packages_FS_NET)
++packages_NOIPv6:=-kmod-ip6tables -kmod-ipv6 -odhcp6c -odhcpd -libip6tc
++
++packages_NET_ETHERNET:=xl2tpd ppp-mod-pptp
++packages_LUCI_GENERIC:=luci luci-i18n-russian
++packages_GENERIC:=kmod-ledtrig-netdev kmod-nls-utf8
++packages_IPv6:=luci-proto-ipv6
++
++packages_8M:=ntfs-3g kmod-fs-vfat zram-swap
++packages_4M:=-dropbear
++
++define Profile/KEENETIC
++	NAME:=ZyXEL Keenetic
++	PACKAGES:=$(packages_GENERIC) $(packages_NET_ETHERNET) $(packages_USB) $(packages_IPv6) $(packages_LUCI_GENERIC) $(packages_8M)
++endef
++
++define Profile/KEENETIC/Description
++	Package set for ZyXEL Keenetic board
++endef
++
++$(eval $(call Profile,KEENETIC))
++
++
++define Profile/KEENETIC_GIGA
++	NAME:=ZyXEL Keenetic Giga
++	PACKAGES:=$(packages_GENERIC) $(packages_NET_ETHERNET) $(packages_USB) $(packages_IPv6) $(packages_LUCI_GENERIC) $(packages_8M) kmod-switch-ar8216 kmod-mdio-gpio
++endef
++
++define Profile/KEENETIC_GIGA/Description
++	Package set for ZyXEL Keenetic Giga board
++endef
++
++$(eval $(call Profile,KEENETIC_GIGA))
++
++
++define Profile/KEENETIC_LITE_A
++	NAME:=ZyXEL Keenetic Lite rev.A
++	PACKAGES:=$(packages_GENERIC) $(packages_NET_ETHERNET) $(packages_NOUSB) $(packages_NOIPv6) $(packages_LUCI_GENERIC) $(packages_4M) kmod-ledtrig-heartbeat
++endef
++
++define Profile/KEENETIC_LITE_A/Description
++	Package set for ZyXEL Keenetic Lite rev.A board
++endef
++
++$(eval $(call Profile,KEENETIC_LITE_A))
++
++
++define Profile/NBG4104
++	NAME:=ZyXEL Keenetic Lite rev.B
++	PACKAGES:=$(packages_GENERIC) $(packages_NET_ETHERNET) $(packages_NOUSB) $(packages_IPv6) $(packages_LUCI_GENERIC) 
++endef
++
++define Profile/NBG4104/Description
++	Package set for ZyXEL NBG4104 board
++endef
++
++$(eval $(call Profile,NBG4104))
++
++
++define Profile/KEENETIC_4G_A
++	NAME:=ZyXEL Keenetic 4G rev.A
++	PACKAGES:=$(packages_GENERIC) $(packages_NET_ETHERNET) $(packages_USB) $(packages_NOIPv6) $(packages_LUCI_GENERIC) $(packages_4M) kmod-ledtrig-heartbeat block-mount
++endef
++
++define Profile/KEENETIC_4G_A/Description
++	Package set for ZyXEL Keenetic 4G rev.A board
++endef
++
++$(eval $(call Profile,KEENETIC_4G_A))
++
++
++define Profile/NBG4114
++	NAME:=ZyXEL Keenetic 4G rev.B
++	PACKAGES:=$(packages_GENERIC) $(packages_NET_ETHERNET) $(packages_USB) $(packages_IPv6) $(packages_LUCI_GENERIC) $(packages_8M) kmod-ledtrig-heartbeat
++endef
++
++define Profile/NBG4114/Description
++	Package set for ZyXEL NBG4114 board
++endef
++
++$(eval $(call Profile,NBG4114))
++
++
++define Profile/KEENETIC_START
++	NAME:=ZyXEL Keenetic Start
++ 	PACKAGES:=$(packages_GENERIC) $(packages_NET_ETHERNET) $(packages_NOUSB) $(packages_NOIPv6) $(packages_4M) kmod-ledtrig-heartbeat
++endef
++
++define Profile/KEENETIC_START/Description
++	Package set for ZyXEL Keenetic Start board
++endef
++
++$(eval $(call Profile,KEENETIC_START))
++
++
++define Profile/KEENETIC_4G_II
++	NAME:=ZyXEL Keenetic 4G II
++	PACKAGES:=$(packages_GENERIC) $(packages_NET_ETHERNET) $(packages_USB) $(packages_NOIPv6) $(packages_LUCI_GENERIC) $(packages_4M) block-mount
++endef
++
++define Profile/KEENETIC_4G_II/Description
++	Package set for ZyXEL Keenetic 4G II board
++endef
++
++$(eval $(call Profile,KEENETIC_4G_II))
+Index: tools/Makefile
+===================================================================
+--- tools/Makefile	(revision 42231)
++++ tools/Makefile	(working copy)
+@@ -28,7 +28,7 @@
+ tools-y += sstrip ipkg-utils genext2fs e2fsprogs mtd-utils mkimage
+ tools-y += firmware-utils patch-image patch quilt yaffs2 flock padjffs2
+ tools-y += mm-macros xorg-macros xfce-macros missing-macros xz cmake scons bc
+-tools-y += findutils
++tools-y += findutils zyimage
+ tools-$(CONFIG_TARGET_orion_generic) += wrt350nv2-builder upslug2
+ tools-$(CONFIG_powerpc) += upx
+ tools-$(CONFIG_TARGET_x86) += qemu
+@@ -71,6 +71,7 @@
+ $(curdir)/b43-tools/compile := $(curdir)/bison/install
+ $(curdir)/padjffs2/compile := $(curdir)/findutils/install
+ $(curdir)/cloog/compile := $(curdir)/ppl/install
++$(curdir)/zyimage/compile := $(curdir)/findutils/install
+ 
+ ifneq ($(CONFIG_CCACHE),)
+ $(foreach tool, $(tools-y), $(eval $(curdir)/$(tool)/compile += $(curdir)/ccache/install))
+Index: tools/zyimage/Makefile
+===================================================================
+--- tools/zyimage/Makefile	(revision 0)
++++ tools/zyimage/Makefile	(working copy)
+@@ -0,0 +1,36 @@
++#
++# Copyright (C) 2011-2014 OpenWrt.org
++#
++# This is free software, licensed under the GNU General Public License v2.
++# See /LICENSE for more information.
++#
++
++include $(TOPDIR)/rules.mk
++
++PKG_NAME:=zyimage
++PKG_VERSION:=1
++
++include $(INCLUDE_DIR)/host-build.mk
++
++define Host/Prepare
++	mkdir -p $(HOST_BUILD_DIR)
++	$(CP) ./src/* $(HOST_BUILD_DIR)/
++	find $(HOST_BUILD_DIR) -name .svn | $(XARGS) rm -rf
++endef
++
++define Host/Compile
++	$(MAKE) -C $(HOST_BUILD_DIR) LDFLAGS="$(HOST_STATIC_LINKING)"
++endef
++
++define Host/Configure
++endef
++
++define Host/Install
++	$(CP) $(HOST_BUILD_DIR)/zyimage $(STAGING_DIR_HOST)/bin/
++endef
++
++define Host/Clean
++	rm -f $(STAGING_DIR_HOST)/bin/zyimage
++endef
++
++$(eval $(call HostBuild))
+Index: tools/zyimage/src/Makefile
+===================================================================
+--- tools/zyimage/src/Makefile	(revision 0)
++++ tools/zyimage/src/Makefile	(working copy)
+@@ -0,0 +1,15 @@
++CC = gcc
++CFLAGS =
++WFLAGS = -Wall -Werror
++zyimage-objs = zyimage.o
++
++all: zyimage
++
++%.o: %.c
++	$(CC) $(CFLAGS) $(WFLAGS) -c -o $@ $<
++
++zyimage: $(zyimage-objs)
++	$(CC) $(LDFLAGS) -o $@ $(zyimage-objs)
++
++clean:
++	rm -f zyimage *.o
+Index: tools/zyimage/src/zyimage.c
+===================================================================
+--- tools/zyimage/src/zyimage.c	(revision 0)
++++ tools/zyimage/src/zyimage.c	(working copy)
+@@ -0,0 +1,141 @@
++/*
++ * Copyright (C) 2014 Soul Trace <S-trace@list.ru>
++ *
++ * This program is free software; you can redistribute it and/or modify it
++ * under the terms of the GNU General Public License version 2 as published
++ * by the Free Software Foundation.
++ *
++ */
++
++#include <stdio.h>
++#include <stdlib.h>
++#include <sys/types.h>
++#include <string.h>
++#include <unistd.h>
++
++#define szbuf 32768
++
++u_int32_t crc_tab[256];
++
++u_int32_t chksum_crc32 (FILE *f)
++{
++  register unsigned long crc;
++  unsigned long i, j;
++  char *buffer = malloc(szbuf);
++  char *buf;
++  
++  crc = 0xFFFFFFFF;
++  while (!feof(f))
++  {
++    j = fread(buffer, 1, szbuf, f);
++    buf = buffer;
++    for (i = 0; i < j; i++)
++      crc = ((crc >> 8) & 0x00FFFFFF) ^ crc_tab[(crc ^ *buf++) & 0xFF];
++  }
++  free(buffer);
++  return crc;
++}
++
++void chksum_crc32gentab ()
++{
++  unsigned long crc, poly;
++  int i, j;
++  
++  poly = 0xEDB88320L;
++  for (i = 0; i < 256; i++)
++  {
++    crc = i;
++    for (j = 8; j > 0; j--)
++    {
++      if (crc & 1)
++        crc = (crc >> 1) ^ poly;
++      else
++        crc >>= 1;
++    }
++    crc_tab[i] = crc;
++  }
++}
++
++void usage(char *progname)
++{
++  printf("Usage: %s [ -v Version ] [ -d Device_ID ] <input file>\n", progname);
++  exit(1);
++}
++
++int main(int argc, char *argv[]) {
++  struct signature
++  {
++    const char magic[4];
++    unsigned int device_id;
++    char firmware_version[48];
++    unsigned int crc32;
++  }
++  sign =
++  {
++    { 'Z', 'N', 'B', 'G' },
++    1,
++    { "V.1.0.0(1.0.0)" },
++    0
++  };
++  FILE *f;
++  
++  if (argc < 1)
++    usage(argv[0]);
++  
++  static const char *optString = "v:d:h";
++  int opt = getopt( argc, argv, optString );
++  while( opt != -1 ) {
++    switch( opt ) {
++      case 'v':
++        if (optarg == NULL)
++          usage(argv[0]);
++        strncpy(sign.firmware_version, optarg, sizeof(sign.firmware_version)-1);
++       sign.firmware_version[sizeof(sign.firmware_version)-1]='\0'; // Make sure that string is terminated correctly
++        break;
++        
++      case 'd':
++        sign.device_id = atoi(optarg);
++        if (sign.device_id == 0)
++          sign.device_id = (int)strtol(optarg, NULL, 16);
++        break;
++        
++      case '?':
++      case 'h':
++        usage(argv[0]);
++        break;
++        
++      default:
++        break;
++    }
++    
++    opt = getopt( argc, argv, optString );
++  }
++  
++  chksum_crc32gentab();
++  char *filename=argv[optind];
++  if (access(filename, W_OK) || access(filename, R_OK))
++  {
++    printf("Not open input file %s\n", filename);
++    exit(1);
++  }
++  f = fopen(argv[optind], "r+");
++  if (f != NULL)
++  {
++    fseek(f, sizeof(sign)*-1, SEEK_END);
++    struct signature oldsign;
++    fread(&oldsign, sizeof(oldsign), 1, f);
++    if (strncmp(oldsign.magic,"ZNBG", sizeof(oldsign.magic)) == 0 )
++    {
++      printf("Image is already signed as:\nDevice ID: 0x%08x\nFirmware version: %s\nImage CRC32: 0x%x\n", oldsign.device_id, oldsign.firmware_version, oldsign.crc32);
++      exit(0);
++    }
++    
++    fseek(f, 0, SEEK_SET);
++    sign.crc32 = chksum_crc32(f);
++    fwrite(&sign, sizeof(sign), 1, f);
++    fclose(f);
++    printf("Image signed as:\nDevice ID: 0x%08x\nFirmware version: %s\nImage CRC32: 0x%x\n", sign.device_id, sign.firmware_version, sign.crc32);
++  }
++  return 0;
++}
++
