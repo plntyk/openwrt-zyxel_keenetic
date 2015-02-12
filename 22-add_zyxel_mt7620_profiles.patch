@@ -10,12 +10,12 @@ Index: target/linux/ramips/mt7620n/profiles/zyxel.mk
 +# See /LICENSE for more information.
 +#
 +
-+# Для роутеров с USB: 
++# Для роутеров с USB:
 +packages_KMOD_USB:=kmod-usb-core kmod-usb-rt305x-dwc_otg kmod-usb-ohci kmod-usb2 kmod-usb-storage kmod-ledtrig-usbdev
 +packages_LUCI_USB:=luci-proto-3g
 +packages_NET_USB:=kmod-usb-acm kmod-usb-net kmod-usb-net-rndis kmod-usb-serial kmod-usb-serial-option usb-modeswitch
 +packages_FS_USB:=kmod-fs-ext4 kmod-nls-cp1251
-+packages_USB:=$(packages_KMOD_USB) $(packages_LUCI_USB) $(packages_NET_USB) $(packages_FS_USB) 
++packages_USB:=$(packages_KMOD_USB) $(packages_LUCI_USB) $(packages_NET_USB) $(packages_FS_USB)
 +
 +# Для роутеров без USB:
 +# packages_FS_NET:=sshfs
