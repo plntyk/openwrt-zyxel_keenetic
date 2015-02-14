@@ -1,0 +1,79 @@
+From 7315023a0a32bbf98afb496ed25ee18c6de9bee1 Mon Sep 17 00:00:00 2001
+From: Dirk Neukirchen <dirkneukirchen@web.de>
+Date: Sat, 14 Feb 2015 14:26:12 +0100
+Subject: [PATCH 18/19] ramips: add documentation to image building
+
+Signed-off-by: Dirk Neukirchen <dirkneukirchen@web.de>
+---
+ target/linux/ramips/image/Makefile | 20 +++++++++++++++++++-
+ 1 file changed, 19 insertions(+), 1 deletion(-)
+
+diff --git a/target/linux/ramips/image/Makefile b/target/linux/ramips/image/Makefile
+index efaf45e..f373cef 100644
+--- a/target/linux/ramips/image/Makefile
++++ b/target/linux/ramips/image/Makefile
+@@ -100,6 +100,10 @@ define CompressLzma
+ endef
+ 
+ define MkImageSysupgrade/squashfs
++	# $(1) = squashfs/initramfs
++	# $(2) = lowercase board name
++	# $(3) = max allowed size
++	# $(4) = type (sysupgrade/factory)
+ 	$(eval output_name=$(IMG_PREFIX)-$(2)-$(1)-$(if $(4),$(4),sysupgrade).bin)
+ 	cat $(KDIR)/vmlinux-$(2).uImage $(KDIR)/root.$(1) > $(KDIR)/$(output_name)
+ 	$(call prepare_generic_squashfs,$(KDIR)/$(output_name))
+@@ -131,6 +135,9 @@ endef
+ # $(2), DTS filename without .dts extension
+ # $(3), optional filename suffix, e.g. "-initramfs"
+ define PatchKernelLzmaDtb
++	# $(1) = lowercase board name
++	# $(2) = dts file
++	# $(3) = default/-initramfs
+ 	cp $(KDIR)/vmlinux$(3) $(KDIR)/vmlinux-$(1)$(3)
+ 	$(LINUX_DIR)/scripts/dtc/dtc -O dtb -o $(KDIR)/$(2).dtb ../dts/$(2).dts
+ 	$(STAGING_DIR_HOST)/bin/patch-dtb $(KDIR)/vmlinux-$(1)$(3) $(KDIR)/$(2).dtb
+@@ -142,6 +149,10 @@ endef
+ # $(3), ih_name field of uImage header
+ # $(4), optional filename suffix, e.g. "-initramfs"
+ define MkImageLzmaDtb
++	# $(1) = lowercase board name
++	# $(2) = dts file
++	# $(3) = uImage text
++	# $(4) = default/-initramfs
+ 	$(call PatchKernelLzmaDtb,$(1),$(2),$(4))
+ 	$(call MkImage,lzma,$(KDIR)/vmlinux-$(1)$(4).bin.lzma,$(KDIR)/vmlinux-$(1)$(4).uImage,$(3))
+ endef
+@@ -152,6 +163,12 @@ endef
+ # $(4), maximum size of sysupgrade image
+ # $(5), uImage header's ih_name field
+ define BuildFirmware/OF
++	# $(1) = squashfs/initramfs
++	# $(2) = lowercase board name
++	# $(3) = dts file
++	# $(4) = max allowed size
++	# $(5) = uImage text
++	# $(6) = type (sysupgrade/factory)
+ 	$(call MkImageLzmaDtb,$(2),$(3),$(5))
+ 	$(call MkImageSysupgrade/$(1),$(1),$(2),$(4),$(6))
+ endef
+@@ -181,6 +198,7 @@ endef
+ # $(1) = squashfs/initramfs
+ # $(2) = lowercase board name
+ # $(3) = dts file
++# $(4) = uImage text
+ ralink_default_fw_size_4M=3866624
+ BuildFirmware/Default4M/squashfs=$(call BuildFirmware/OF,$(1),$(2),$(3),$(ralink_default_fw_size_4M),$(4))
+ BuildFirmware/Default4M/initramfs=$(call BuildFirmware/OF/initramfs,$(1),$(2),$(3),$(4))
+@@ -190,7 +208,7 @@ BuildFirmware/Default4M/initramfs=$(call BuildFirmware/OF/initramfs,$(1),$(2),$(
+ # $(1) = squashfs/initramfs
+ # $(2) = lowercase board name
+ # $(3) = dts file
+-# $(4) = uImage header name field
++# $(4) = uImage text
+ ralink_default_fw_size_8M=8060928
+ BuildFirmware/Default8M/squashfs=$(call BuildFirmware/OF,$(1),$(2),$(3),$(ralink_default_fw_size_8M),$(4))
+ BuildFirmware/Default8M/initramfs=$(call BuildFirmware/OF/initramfs,$(1),$(2),$(3),$(4))
+-- 
+2.3.0
+

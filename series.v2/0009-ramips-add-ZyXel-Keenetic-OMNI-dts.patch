@@ -1,0 +1,110 @@
+From d526eae028302a6add052c8c24ea578f3be3c056 Mon Sep 17 00:00:00 2001
+From: Dirk Neukirchen <dirkneukirchen@web.de>
+Date: Thu, 12 Feb 2015 10:21:37 +0100
+Subject: [PATCH 09/19] ramips: add ZyXel Keenetic OMNI dts
+
+Signed-off-by: Dirk Neukirchen <dirkneukirchen@web.de>
+---
+ target/linux/ramips/dts/KEENETIC_OMNI.dts | 90 +++++++++++++++++++++++++++++++
+ 1 file changed, 90 insertions(+)
+ create mode 100644 target/linux/ramips/dts/KEENETIC_OMNI.dts
+
+diff --git a/target/linux/ramips/dts/KEENETIC_OMNI.dts b/target/linux/ramips/dts/KEENETIC_OMNI.dts
+new file mode 100644
+index 0000000..e2a0cc6
+--- /dev/null
++++ b/target/linux/ramips/dts/KEENETIC_OMNI.dts
+@@ -0,0 +1,90 @@
++/dts-v1/;
++
++/include/ "mt7620n.dtsi"
++
++/ {
++	compatible = "KEENETIC_OMNI", "ralink,mt7620n-soc";
++	model = "Keenetic Omni";
++
++	palmbus@10000000 {
++		gpio2: gpio@660 {
++			status = "okay";
++		};
++
++		gpio3: gpio@688 {
++			status = "okay";
++		};
++
++		spi@b00 {
++			status = "okay";
++
++			m25p80@0 {
++				#address-cells = <1>;
++				#size-cells = <1>;
++				#compatible = "mx25l6405d";
++				compatible = "w25q128";
++				reg = <0 0>;
++				linux,modalias = "m25p80", "w25q128";
++				spi-max-frequency = <10000000>;
++
++				partition@0 {
++					label = "u-boot";
++					reg = <0x0 0x30000>;
++					read-only;
++				};
++
++				partition@30000 {
++					label = "u-boot-env";
++					reg = <0x30000 0x10000>;
++					read-only;
++				};
++
++				factory: partition@40000 {
++					label = "factory";
++					reg = <0x40000 0x10000>;
++					read-only;
++				};
++
++				partition@50000 {
++					label = "firmware";
++					reg = <0x50000 0x7b0000>;
++				};
++			};
++		};
++	};
++
++	pinctrl {
++		state_default: pinctrl0 {
++			gpio {
++				ralink,group = "i2c", "jtag", "uartf", "mdio", "pa", "phy_led", "rgmii1", "wdt_pins";
++				ralink,function = "gpio";
++			};
++		};
++	};
++
++	wmac@10180000 {
++		ralink,mtd-eeprom = <&factory 0>;
++	};
++
++	ehci@101c0000 {
++		status = "okay";
++	};
++
++	ohci@101c1000 {
++		status = "okay";
++	};
++
++	ethernet@10100000 {
++		mtd-mac-address = <&factory 0x4>;
++		ralink,port-map = "wllll";
++	};
++
++	pinctrl {
++		state_default: pinctrl0 {
++			default {
++				ralink,group = "ephy", "wled";
++				ralink,function = "gpio";
++			};
++		};
++	};
++};
+-- 
+2.3.0
+

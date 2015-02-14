@@ -1,0 +1,110 @@
+From 6b19414100c94c7500c626934f1658b7002515c0 Mon Sep 17 00:00:00 2001
+From: Dirk Neukirchen <dirkneukirchen@web.de>
+Date: Sat, 14 Feb 2015 14:26:49 +0100
+Subject: [PATCH 17/19] ramips: create Zyxel Keenetic images
+
+create images for rt305x and mt7620n boards
+
+Signed-off-by: Dirk Neukirchen <dirkneukirchen@web.de>
+---
+ target/linux/ramips/image/Makefile | 63 ++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 63 insertions(+)
+
+diff --git a/target/linux/ramips/image/Makefile b/target/linux/ramips/image/Makefile
+index 7363730..efaf45e 100644
+--- a/target/linux/ramips/image/Makefile
++++ b/target/linux/ramips/image/Makefile
+@@ -557,6 +557,55 @@ Image/Build/Profile/MPRA2=$(call BuildFirmware/Default8M/$(1),$(1),mpr-a2,MPRA2,
+ Image/Build/Profile/DIR-300-B7=$(call BuildFirmware/Default4M/$(1),$(1),dir-300-b7,DIR-300-B7)
+ Image/Build/Profile/DIR-320-B1=$(call BuildFirmware/Default8M/$(1),$(1),dir-320-b1,DIR-320-B1)
+ 
++define BuildFirmware/ZyXEL_Keenetic_series/squashfs
++	# $(1)=squashfs
++	# $(2)=lowercase_board_name
++	# $(3)=dts_file
++	# $(4)=max_FW_size
++	# $(5)=uImage_size
++	# $(6)=product_code
++	$(eval max_size=$(shell expr $(4) + 4))
++	$(call BuildFirmware/OF,$(1),$(2),$(3),$(max_size))
++	$(eval output_name=$(IMG_PREFIX)-$(2)-$(1)-factory)
++
++	@if [ -f $(BIN_DIR)/$(IMG_PREFIX)-$(2)-$(1)-sysupgrade.bin ]; then \
++		if [ `stat -c%s "$(KDIR)/vmlinux-$(2).bin.lzma"` -gt `expr $(5) - 64` ]; then \
++			echo "Warning: unable to build Factory image! $(KDIR)/vmlinux-$(2).bin.lzma is too big: `stat -c%s "$(KDIR)/vmlinux-$(2).bin.lzma"` (`expr $(5) - 64` max) " >&2; \
++			rm $(KDIR)/vmlinux-$(2).bin.lzma; \
++		else \
++			echo "Generating Factory image!" >&2; \
++			dd if=$(KDIR)/vmlinux-$(2).bin.lzma of=$(KDIR)/vmlinux-$(2).bin.lzma.factory bs=`expr $(5) - 64` conv=sync; \
++		fi; \
++	fi
++	$(call MkImage,lzma,$(KDIR)/vmlinux-$(2).bin.lzma.factory,$(KDIR)/vmlinux-$(2).uImage.factory,$(3))
++	@if [ -f $(KDIR)/vmlinux-$(2).uImage.factory ] ; then \
++		cat $(KDIR)/vmlinux-$(2).uImage.factory $(KDIR)/root.$(1) > $(KDIR)/$(output_name).bin; \
++		if [ `stat -c%s "$(KDIR)/$(output_name).bin"` -gt $(max_size) ]; then \
++			echo "Warning: $(KDIR)/$(output_name).bin is too big: `stat -c%s "$(KDIR)/$(output_name).bin"` ($(max_size) max) " >&2; \
++		else \
++			$(CP) $(KDIR)/$(output_name).bin $(BIN_DIR)/$(output_name).bin; \
++			dd if=$(BIN_DIR)/$(output_name).bin of=$(BIN_DIR)/$(output_name).factory bs=65536 conv=sync; \
++			mv $(BIN_DIR)/$(output_name).factory $(BIN_DIR)/$(output_name).bin; \
++			$(STAGING_DIR_HOST)/bin/zyimage -v "$(output_name)" -d $(6) $(BIN_DIR)/$(output_name).bin; \
++		fi; \
++	else \
++		echo "Warning: Refusing to try to create Factory image due to Sysupgrade image $(BIN_DIR)/$(IMG_PREFIX)-$(2)-$(1)-sysupgrade.bin was not created!"; \
++	fi
++endef
++
++# 3538948(=0x360004) = 3866624(ralink_default_fw_size_4M=0x3B0000) - 327680(=0x50000) + 4
++keenetic_rt305x_mtd_size_4M=3538948
++# 7733252(=0x760004) = 8060928(ralink_default_fw_size_8M=0x7B0000) - 327680(=0x50000) + 4
++keenetic_rt305x_mtd_size_8M=7733252
++Image/Build/Profile/KEENETIC=$(call BuildFirmware/ZyXEL_Keenetic_series/$(1),$(1),keenetic,KEENETIC,$(keenetic_rt305x_mtd_size_8M),1245184,0x00004215)
++Image/Build/Profile/KEENETIC_GIGA=$(call BuildFirmware/ZyXEL_Keenetic_series/$(1),$(1),keenetic_giga,KEENETIC_GIGA,$(keenetic_rt305x_mtd_size_8M),1245184,0x00004615)
++Image/Build/Profile/KEENETIC_LITE_A=$(call BuildFirmware/ZyXEL_Keenetic_series/$(1),$(1),keenetic_lite_a,KEENETIC_LITE_A,$(keenetic_rt305x_mtd_size_4M),983040,0x00000417)
++Image/Build/Profile/NBG4104=$(call BuildFirmware/ZyXEL_Keenetic_series/$(1),$(1),nbg4104,NBG4104,$(keenetic_rt305x_mtd_size_8M),1245184,0x00004104)
++Image/Build/Profile/KEENETIC_4G_A=$(call BuildFirmware/ZyXEL_Keenetic_series/$(1),$(1),keenetic_4g_a,KEENETIC_4G_A,$(keenetic_rt305x_mtd_size_4M),983040,0x00004115)
++Image/Build/Profile/NBG4114=$(call BuildFirmware/ZyXEL_Keenetic_series/$(1),$(1),nbg4114,NBG4114,$(keenetic_rt305x_mtd_size_8M),1245184,0x00005115)
++Image/Build/Profile/KEENETIC_START=$(call BuildFirmware/ZyXEL_Keenetic_series/$(1),$(1),keenetic_start,KEENETIC_START,$(keenetic_rt305x_mtd_size_4M),1048576,0x00001202)
++Image/Build/Profile/KEENETIC_4G_II=$(call BuildFirmware/ZyXEL_Keenetic_series/$(1),$(1),keenetic_4g_ii,KEENETIC_4G_II,$(keenetic_rt305x_mtd_size_4M),1048576,0x00001212)
++
+ Image/Build/Profile/NBG-419N=$(call BuildFirmware/Default4M/$(1),$(1),nbg-419n,NBG-419N)
+ 
+ Image/Build/Profile/MZKW300NH2=$(call BuildFirmware/Edimax/$(1),$(1),mzk-w300nh2,MZK-W300NH2,$(mzkw300nh2_mtd_size),CSYS,RN52,0x50000,0xc0000)
+@@ -676,6 +725,14 @@ Image/Build/Profile/XDXRN502J=$(call BuildFirmware/Default4M/$(1),$(1),xdxrn502j
+ 
+ ifeq ($(SUBTARGET),rt305x)
+ define Image/Build/Profile/Default
++	$(call Image/Build/Profile/KEENETIC,$(1))
++	$(call Image/Build/Profile/KEENETIC_GIGA,$(1))
++	$(call Image/Build/Profile/KEENETIC_LITE_A,$(1))
++	$(call Image/Build/Profile/NBG4104,$(1))
++	$(call Image/Build/Profile/KEENETIC_4G_A,$(1))
++	$(call Image/Build/Profile/NBG4114,$(1))
++	$(call Image/Build/Profile/KEENETIC_START,$(1))
++	$(call Image/Build/Profile/KEENETIC_4G_II,$(1))
+ 	$(call Image/Build/Profile/3G6200N,$(1))
+ 	$(call Image/Build/Profile/3G6200NL,$(1))
+ 	$(call Image/Build/Profile/3G150B,$(1))
+@@ -862,6 +919,10 @@ Image/Build/Profile/XIAOMI-MIWIFI-MINI=$(call BuildFirmware/Default16M/$(1),$(1)
+ Image/Build/Profile/ZBT-WA05=$(call BuildFirmware/Default8M/$(1),$(1),zbt-wa05,ZBT-WA05)
+ Image/Build/Profile/ArcherC20i=$(call BuildFirmware/Tplink/$(1),$(1),ArcherC20i,ArcherC20i)
+ 
++zyxel_mt7620_mtd_size_8M=7733248
++Image/Build/Profile/KEENETIC_LITE_II=$(call BuildFirmware/ZyXEL_Keenetic_series/$(1),$(1),keenetic_lite_ii,KEENETIC_LITE_II,$(zyxel_mt7620_mtd_size_8M),1245184,0x00001302)
++Image/Build/Profile/KEENETIC_OMNI=$(call BuildFirmware/ZyXEL_Keenetic_series/$(1),$(1),keenetic_omni,KEENETIC_OMNI,$(zyxel_mt7620_mtd_size_8M),1245184,0x00001312)
++
+ 
+ ifeq ($(SUBTARGET),mt7620)
+ define Image/Build/Profile/Default
+@@ -890,6 +951,8 @@ define Image/Build/Profile/Default
+ 	$(call Image/Build/Profile/XIAOMI-MIWIFI-MINI,$(1))
+ 	$(call Image/Build/Profile/ZBT-WA05,$(1))
+ 	$(call Image/Build/Profile/ArcherC20i,$(1))
++	$(call Image/Build/Profile/KEENETIC_LITE_II,$(1))
++	$(call Image/Build/Profile/KEENETIC_OMNI,$(1))
+ endef
+ endif
+ 
+-- 
+2.3.0
+

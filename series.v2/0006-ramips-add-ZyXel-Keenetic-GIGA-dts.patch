@@ -1,0 +1,154 @@
+From fc4b5ca9db3a96aa09ab0f63a716b8560e9bb068 Mon Sep 17 00:00:00 2001
+From: Dirk Neukirchen <dirkneukirchen@web.de>
+Date: Thu, 12 Feb 2015 10:11:37 +0100
+Subject: [PATCH 06/19] ramips: add ZyXel Keenetic GIGA dts
+
+Signed-off-by: Dirk Neukirchen <dirkneukirchen@web.de>
+---
+ target/linux/ramips/dts/KEENETIC_GIGA.dts | 134 ++++++++++++++++++++++++++++++
+ 1 file changed, 134 insertions(+)
+ create mode 100644 target/linux/ramips/dts/KEENETIC_GIGA.dts
+
+diff --git a/target/linux/ramips/dts/KEENETIC_GIGA.dts b/target/linux/ramips/dts/KEENETIC_GIGA.dts
+new file mode 100644
+index 0000000..77e6a88
+--- /dev/null
++++ b/target/linux/ramips/dts/KEENETIC_GIGA.dts
+@@ -0,0 +1,134 @@
++/dts-v1/;
++
++/include/ "rt3050.dtsi"
++
++/ {
++	compatible = "KEENETIC_GIGA", "ralink,rt3050-soc";
++	model = "ZyXEL Keenetic Giga";
++
++	pinctrl {
++		state_default: pinctrl0 {
++			gpio {
++				ralink,group = "i2c", "jtag", "uartf";
++				ralink,function = "gpio";
++			};
++		};
++	};
++
++	cfi@1f000000 {
++		compatible = "cfi-flash";
++		reg = <0x1f000000 0x800000>;
++
++		bank-width = <2>;
++		device-width = <2>;
++		#address-cells = <1>;
++		#size-cells = <1>;
++
++		partition@0 {
++			label = "u-boot";
++			reg = <0x0 0x30000>;
++			read-only;
++		};
++
++		partition@30000 {
++			label = "u-boot-env";
++			reg = <0x30000 0x10000>;
++			read-only;
++		};
++
++		factory: partition@40000 {
++			label = "factory";
++			reg = <0x40000 0x10000>;
++			read-only;
++		};
++
++		partition@50000 {
++			label = "firmware";
++			reg = <0x50000 0x7b0000>;
++		};
++	};
++
++	ethernet@10100000 {
++		mtd-mac-address = <&factory 0x4>;
++	};
++
++	esw@10110000 {
++		ralink,portmap = <0x3f>;
++		ralink,fct2 = <0x0002500c>;
++		/* ext phy base addr 31, rx/tx clock skew 0,
++		 * turbo mii off, rgmi 3.3v off, port 5 polling off
++		 * port5: enabled, gige, full-duplex, rx/tx-flow-control
++		 * port6: enabled, gige, full-duplex, rx/tx-flow-control
++		*/
++		ralink,fpa2 = <0x1f003fff>;
++	};
++
++	wmac@10180000 {
++		ralink,mtd-eeprom = <&factory 0>;
++	};
++
++	gpio-leds {
++		compatible = "gpio-leds";
++		power {
++			label = "zyxel:green:power";
++			gpios = <&gpio0 9 1>;
++		};
++		wlan {
++			label = "zyxel:green:wlan";
++			gpios = <&gpio0 14 1>;
++		};
++		internet {
++			label = "zyxel:green:internet";
++			gpios = <&gpio0 13 1>;
++		};
++		usb {
++			label = "zyxel:green:usb";
++			gpios = <&gpio0 8 1>;
++		};
++	};
++
++
++	gpio-keys-polled {
++	compatible = "gpio-keys-polled";
++	#address-cells = <1>;
++	#size-cells = <0>;
++	poll-interval = <20>;
++		reset {
++			label = "reset";
++			gpios = <&gpio0 10 1>;
++			linux,code = <0x198>;
++		};
++		/* 1-on, 0-off */
++		wifi {
++			label = "wifi";
++			gpios = <&gpio0 12 0>;
++			linux,code = <0xf7>;
++			linux,input-type = <5>; /* EV_SW */
++		};
++		wps {
++			label = "wps";
++			gpios = <&gpio0 0 1>;
++			linux,code = <0x211>;
++		};
++		usb_a {
++			label = "usb_a";
++			gpios = <&gpio0 2 1>;
++			linux,code = <0x212>;
++		};
++		usb_b {
++			label = "usb_b";
++			gpios = <&gpio0 1 1>;
++			linux,code = <0x213>;
++		};
++	};
++
++	rtl8366rb {
++		compatible = "rtl8367rb";
++		gpio-sda = <&gpio0 1 0>;
++		gpio-sck = <&gpio0 2 0>;
++	};
++
++	otg@101c0000 {
++		status = "okay";
++	};
++};
+-- 
+2.3.0
+

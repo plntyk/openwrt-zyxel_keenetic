@@ -1,0 +1,78 @@
+From 667e621bb843d8d76fc19e355c4dd201f8545117 Mon Sep 17 00:00:00 2001
+From: Dirk Neukirchen <dirkneukirchen@web.de>
+Date: Thu, 12 Feb 2015 10:30:56 +0100
+Subject: [PATCH 14/19] ramips: add some pins to mt7620n
+
+Signed-off-by: Dirk Neukirchen <dirkneukirchen@web.de>
+---
+ target/linux/ramips/dts/mt7620n.dtsi | 42 ++++++++++++++++++++++++++++++++++++
+ 1 file changed, 42 insertions(+)
+
+diff --git a/target/linux/ramips/dts/mt7620n.dtsi b/target/linux/ramips/dts/mt7620n.dtsi
+index 83ab03a..46643b0 100644
+--- a/target/linux/ramips/dts/mt7620n.dtsi
++++ b/target/linux/ramips/dts/mt7620n.dtsi
+@@ -204,18 +204,60 @@
+ 		pinctrl-0 = <&state_default>;
+ 		state_default: pinctrl0 {
+ 		};
++		i2c_pins: i2c {
++			i2c {
++				ralink,group = "i2c";
++				ralink,function = "i2c";
++			};
++		};
+ 		spi_pins: spi {
+ 			spi {
+ 				ralink,group = "spi";
+ 				ralink,function = "spi";
+ 			};
+ 		};
++		uartf_pins: uartf {
++			uartf {
++				ralink,group = "uartf";
++				ralink,function = "uartf";
++			};
++		};
+ 		uartlite_pins: uartlite {
+ 			uart {
+ 				ralink,group = "uartlite";
+ 				ralink,function = "uartlite";
+ 			};
+ 		};
++		wdt_pins: wdt {
++			wdt {
++				ralink,group = "wdt";
++				ralink,function = "wdt";
++			};
++		};
++		pa_pins: pa {
++			pa {
++				ralink,group = "pa";
++				ralink,function = "pa";
++			};
++		};
++		mdio_pins: mdio {
++			mdio {
++				ralink,group = "mdio";
++				ralink,function = "mdio";
++			};
++		};
++		rgmii1_pins: rgmii1 {
++			rgmii1 {
++				ralink,group = "rgmii1";
++				ralink,function = "rgmii1";
++			};
++		};
++		phy_led_pins: phy_led {
++			phy_led {
++				ralink,group = "led";
++				ralink,function = "led";
++			};
++		};
+ 	};
+ 
+ 	rstctrl: rstctrl {
+-- 
+2.3.0
+

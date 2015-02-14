@@ -1,0 +1,129 @@
+From 497268a0d6c463550bfe69d987ed951f8735e7fe Mon Sep 17 00:00:00 2001
+From: Dirk Neukirchen <dirkneukirchen@web.de>
+Date: Thu, 12 Feb 2015 10:08:37 +0100
+Subject: [PATCH 05/19] ramips: add ZyXel Keenetic 4G II dts
+
+Signed-off-by: Dirk Neukirchen <dirkneukirchen@web.de>
+---
+ target/linux/ramips/dts/KEENETIC_4G_II.dts | 109 +++++++++++++++++++++++++++++
+ 1 file changed, 109 insertions(+)
+ create mode 100644 target/linux/ramips/dts/KEENETIC_4G_II.dts
+
+diff --git a/target/linux/ramips/dts/KEENETIC_4G_II.dts b/target/linux/ramips/dts/KEENETIC_4G_II.dts
+new file mode 100644
+index 0000000..730aea1
+--- /dev/null
++++ b/target/linux/ramips/dts/KEENETIC_4G_II.dts
+@@ -0,0 +1,109 @@
++/dts-v1/;
++
++/include/ "rt5350.dtsi"
++
++/ {
++	compatible = "KEENETIC_4G_II", "ralink,rt5350-soc";
++	model = "ZyXEL Keenetic 4G II";
++
++	palmbus@10000000 {
++		spi@b00 {
++			status = "okay";
++			m25p80@0 {
++				#address-cells = <1>;
++				#size-cells = <1>;
++				compatible = "s25fl064k";
++				reg = <0 0>;
++				linux,modalias = "m25p80", "s25fl064k";
++				spi-max-frequency = <10000000>;
++
++				partition@0 {
++					label = "u-boot";
++					reg = <0x0 0x30000>;
++					read-only;
++				};
++
++				partition@30000 {
++					label = "u-boot-env";
++					reg = <0x30000 0x10000>;
++					read-only;
++				};
++
++				factory: partition@40000 {
++					label = "factory";
++						reg = <0x40000 0x10000>;
++					read-only;
++				};
++
++				partition@50000 {
++					label = "firmware";
++					reg = <0x50000 0x3b0000>;
++				};
++			};
++		};
++	};
++
++	pinctrl {
++		state_default: pinctrl0 {
++			gpio {
++				ralink,group = "i2c", "jtag", "uartf";
++				ralink,function = "gpio";
++			};
++		};
++	};
++
++	ethernet@10100000 {
++		mtd-mac-address = <&factory 0x4>;
++	};
++
++	esw@10110000 {
++		ralink,portmap = <0x2f>;
++		ralink,led_polarity = <0x17>;
++	};
++
++	wmac@10180000 {
++		ralink,mtd-eeprom = <&factory 0>;
++	};
++
++	gpio-leds {
++		compatible = "gpio-leds";
++		power {
++			label = "zyxel:green:power";
++			gpios = <&gpio0 9 1>;
++		};
++		usb {
++			label = "zyxel:green:usb";
++			gpios = <&gpio0 14 1>;
++		};
++		internet {
++			label = "zyxel:green:internet";
++			gpios = <&gpio0 13 1>;
++		};
++	};
++
++	gpio-keys-polled {
++	compatible = "gpio-keys-polled";
++	#address-cells = <1>;
++	#size-cells = <0>;
++	poll-interval = <20>;
++		reset {
++			label = "reset";
++			gpios = <&gpio0 10 1>;
++			linux,code = <0x198>;
++		};
++		wps {
++			label = "wps";
++			gpios = <&gpio0 0 1>;
++			linux,code = <0x211>;
++		};
++	};
++
++	ehci@101c0000 {
++		status = "okay";
++	};
++
++	ohci@101c0000 {
++		status = "okay";
++	};
++
++};
+-- 
+2.3.0
+

@@ -1,0 +1,35 @@
+From 0371f039b72fe5b016d5883db6df1c4db08ca915 Mon Sep 17 00:00:00 2001
+From: Dirk Neukirchen <dirkneukirchen@web.de>
+Date: Thu, 12 Feb 2015 08:41:48 +0100
+Subject: [PATCH 02/19] tools: enable building of zyimage
+
+build only on ramips (ZyXel Keenetic)
+
+Signed-off-by: Dirk Neukirchen <dirkneukirchen@web.de>
+---
+ tools/Makefile | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/tools/Makefile b/tools/Makefile
+index 93aa5b3..dd6268f 100644
+--- a/tools/Makefile
++++ b/tools/Makefile
+@@ -39,6 +39,7 @@ tools-y += lzma squashfs4
+ tools-$(BUILD_B43_TOOLS) += b43-tools
+ tools-$(BUILD_PPL_CLOOG) += ppl cloog
+ tools-$(CONFIG_USE_SPARSE) += sparse
++tools-$(CONFIG_TARGET_ramips) += zyimage
+ 
+ # builddir dependencies
+ $(curdir)/bison/compile := $(curdir)/flex/install
+@@ -75,6 +76,7 @@ $(curdir)/bc/compile := $(curdir)/bison/install
+ $(curdir)/findutils/compile := $(curdir)/bison/install
+ $(curdir)/gengetopt/compile := $(curdir)/libtool/install
+ $(curdir)/patchelf/compile := $(curdir)/libtool/install
++$(curdir)/zyimage/compile := $(curdir)/findutils/install
+ 
+ ifneq ($(CONFIG_CCACHE),)
+ $(foreach tool, $(tools-y), $(eval $(curdir)/$(tool)/compile += $(curdir)/ccache/install))
+-- 
+2.3.0
+
