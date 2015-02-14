@@ -1,4 +1,4 @@
-From a2f7888b88a4494fbc902ecf89c19fa5dc2f8e3c Mon Sep 17 00:00:00 2001
+From 05b5bd8e06ea91e59bc9777615dd0bf4b1e8ff24 Mon Sep 17 00:00:00 2001
 From: Dirk Neukirchen <dirkneukirchen@web.de>
 Date: Thu, 12 Feb 2015 08:36:06 +0100
 Subject: [PATCH 01/19] tools: add zyimage
@@ -7,8 +7,8 @@ Signed-off-by: Dirk Neukirchen <dirkneukirchen@web.de>
 ---
  tools/zyimage/Makefile      |  39 ++++++++++++
  tools/zyimage/src/Makefile  |  13 ++++
- tools/zyimage/src/zyimage.c | 140 ++++++++++++++++++++++++++++++++++++++++++++
- 3 files changed, 192 insertions(+)
+ tools/zyimage/src/zyimage.c | 148 ++++++++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 200 insertions(+)
  create mode 100644 tools/zyimage/Makefile
  create mode 100644 tools/zyimage/src/Makefile
  create mode 100644 tools/zyimage/src/zyimage.c
@@ -60,11 +60,11 @@ index 0000000..a876f86
 +$(eval $(call HostBuild))
 diff --git a/tools/zyimage/src/Makefile b/tools/zyimage/src/Makefile
 new file mode 100644
-index 0000000..a24a267
+index 0000000..23feded
 --- /dev/null
 +++ b/tools/zyimage/src/Makefile
 @@ -0,0 +1,13 @@
-+WFLAGS = -Wall -Werror
++WFLAGS = -Wall
 +zyimage-objs = zyimage.o
 +
 +all: zyimage
@@ -79,10 +79,10 @@ index 0000000..a24a267
 +	rm -f zyimage *.o
 diff --git a/tools/zyimage/src/zyimage.c b/tools/zyimage/src/zyimage.c
 new file mode 100644
-index 0000000..2440820
+index 0000000..6aacf2f
 --- /dev/null
 +++ b/tools/zyimage/src/zyimage.c
-@@ -0,0 +1,140 @@
+@@ -0,0 +1,148 @@
 +/*
 + * Copyright (C) 2014 Soul Trace <S-trace@list.ru>
 + *
@@ -92,6 +92,8 @@ index 0000000..2440820
 + *
 + */
 +
++#define _POSIX_SOURCE
++#define _POSIX_C_SOURCE 199309L /* getopt */
 +#include <stdio.h>
 +#include <stdlib.h>
 +#include <sys/types.h>
@@ -163,19 +165,23 @@ index 0000000..2440820
 +    0
 +  };
 +  FILE *f;
++  struct signature oldsign;
++  char *filename;
++  static const char *optString;
++  int opt;
 +
 +  if (argc < 1)
 +    usage(argv[0]);
 +
-+  static const char *optString = "v:d:h";
-+  int opt = getopt( argc, argv, optString );
++  optString = "v:d:h";
++  opt = getopt( argc, argv, optString );
 +  while( opt != -1 ) {
 +    switch( opt ) {
 +      case 'v':
 +        if (optarg == NULL)
 +          usage(argv[0]);
 +        strncpy(sign.firmware_version, optarg, sizeof(sign.firmware_version)-1);
-+       sign.firmware_version[sizeof(sign.firmware_version)-1]='\0'; // Make sure that string is terminated correctly
++       sign.firmware_version[sizeof(sign.firmware_version)-1]='\0'; /* Make sure that string is terminated correctly */
 +        break;
 +
 +      case 'd':
@@ -197,7 +203,8 @@ index 0000000..2440820
 +  }
 +
 +  chksum_crc32gentab();
-+  char *filename=argv[optind];
++
++  filename=argv[optind];
 +  if (access(filename, W_OK) || access(filename, R_OK))
 +  {
 +    printf("Not open input file %s\n", filename);
@@ -207,8 +214,8 @@ index 0000000..2440820
 +  if (f != NULL)
 +  {
 +    fseek(f, sizeof(sign)*-1, SEEK_END);
-+    struct signature oldsign;
 +    fread(&oldsign, sizeof(oldsign), 1, f);
++
 +    if (strncmp(oldsign.magic,"ZNBG", sizeof(oldsign.magic)) == 0 )
 +    {
 +      printf("Image is already signed as:\nDevice ID: 0x%08x\nFirmware version: %s\nImage CRC32: 0x%x\n", oldsign.device_id, oldsign.firmware_version, oldsign.crc32);
@@ -219,6 +226,7 @@ index 0000000..2440820
 +    sign.crc32 = chksum_crc32(f);
 +    fwrite(&sign, sizeof(sign), 1, f);
 +    fclose(f);
++
 +    printf("Image signed as:\nDevice ID: 0x%08x\nFirmware version: %s\nImage CRC32: 0x%x\n", sign.device_id, sign.firmware_version, sign.crc32);
 +  }
 +  return 0;
