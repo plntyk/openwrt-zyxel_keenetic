@@ -88,7 +88,7 @@ index f298aa4..d2e02ab 100755
  	whr-300hp2 | \
  	whr-600d | \
  	wsr-600 | \
-@@ -145,6 +152,12 @@ ramips_setup_interfaces()
+@@ -176,6 +182,12 @@ ramips_setup_interfaces()
  		ucidef_add_switch_vlan "switch0" "2" "5 6t"
  		;;
  
