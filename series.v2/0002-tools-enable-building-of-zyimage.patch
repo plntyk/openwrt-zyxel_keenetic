@@ -14,7 +14,7 @@ diff --git a/tools/Makefile b/tools/Makefile
 index 93aa5b3..dd6268f 100644
 --- a/tools/Makefile
 +++ b/tools/Makefile
-@@ -39,6 +39,7 @@ tools-y += lzma squashfs4
+@@ -40,6 +41,7 @@ tools-y += lzma squashfs4
  tools-$(BUILD_B43_TOOLS) += b43-tools
  tools-$(BUILD_PPL_CLOOG) += ppl cloog
  tools-$(CONFIG_USE_SPARSE) += sparse
@@ -22,7 +22,7 @@ index 93aa5b3..dd6268f 100644
  
  # builddir dependencies
  $(curdir)/bison/compile := $(curdir)/flex/install
-@@ -75,6 +76,7 @@ $(curdir)/bc/compile := $(curdir)/bison/install
+@@ -73,6 +75,7 @@ $(curdir)/bc/compile := $(curdir)/bison/install
  $(curdir)/findutils/compile := $(curdir)/bison/install
  $(curdir)/gengetopt/compile := $(curdir)/libtool/install
  $(curdir)/patchelf/compile := $(curdir)/libtool/install
